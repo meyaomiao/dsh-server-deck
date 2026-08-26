@@ -1,0 +1,74 @@
+{
+  "name": "dsh-server-deck",
+  "description": "DSH 能力插件:服务器卡片仪表盘——已连接服务器的卡片视图(状态/CPU/内存/磁盘/延迟)+ 点卡片进入 xterm 交互终端;better-sidebar 页签与独立右侧抽屉双形态挂载",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meyaomiao/DSH-server-deck.git"
+  },
+  "homepage": "https://github.com/meyaomiao/DSH-server-deck#readme",
+  "bugs": {
+    "url": "https://github.com/meyaomiao/DSH-server-deck/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "ssh",
+    "server-monitor",
+    "dashboard",
+    "terminal",
+    "better-sidebar"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-transform-types --test \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "ssh2": "^1.16.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18",
+    "@types/ssh2": "^1.15.4",
+    "@types/ws": "^8.5.13",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.6.0",
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-host-webserver": "0.1.0-rc.8"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc.8"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
