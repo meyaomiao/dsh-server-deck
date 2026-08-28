@@ -2,6 +2,10 @@
 
 **DeepSeek Harness 的服务器卡片仪表盘** —— 已连接服务器的卡片视图(在线状态 / CPU / 内存 / 磁盘 / 延迟),点卡片直接进入 xterm.js 交互终端。
 
+[![dsh-plugin](https://img.shields.io/badge/dsh-plugin-4d6bfe)](https://github.com/topics/dsh-plugin)
+[![npm](https://img.shields.io/npm/v/dsh-server-deck)](https://www.npmjs.com/package/dsh-server-deck)
+[![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+
 <p align="center">
   <img src="docs/screenshots/dashboard.png" width="420" alt="服务器卡片仪表盘">
 </p>
@@ -52,13 +56,16 @@ xterm.js 全功能终端:5000 行回滚、256 色、窗口尺寸实时同步、�
 ## 📦 安装
 
 ```bash
-# 方式一:npm(已发布时)
-dsh plugin --profile web add dsh-server-deck@latest
+# 方式〇:npm 安装(推荐)
+dsh plugin --profile web add dsh-server-deck
 
-# 方式二:从源码
-git clone https://github.com/meyaomiao/DSH-server-deck.git
-cd DSH-server-deck && pnpm install && pnpm build
-dsh plugin --profile web add /path/to/DSH-server-deck
+# 方式一:从 GitHub 直接装(dsh CLI,免 npm)
+dsh plugin --profile web add github:meyaomiao/dsh-server-deck
+
+# 方式二:克隆后本地挂载
+git clone https://github.com/meyaomiao/dsh-server-deck.git
+cd dsh-server-deck && pnpm install && pnpm build
+dsh plugin --profile web add .
 ```
 
 安装后**重启 `dsh web`**(host 半新增了路由),浏览器 Ctrl+F5 强刷。侧边栏「+」菜单出现「服务器」页签即成功。
