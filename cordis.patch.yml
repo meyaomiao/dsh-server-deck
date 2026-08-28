@@ -7,4 +7,4 @@
 #            与 github-workbench 同款协商策略,装载顺序无关。
 - insert:
     - id: server-deck
-      name: '@dsh-abilities/server-deck'
+      name: dsh-server-deck
