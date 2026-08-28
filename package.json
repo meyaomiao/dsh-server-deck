@@ -27,11 +27,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/meyaomiao/DSH-server-deck.git"
+    "url": "git+https://github.com/meyaomiao/dsh-server-deck.git"
   },
-  "homepage": "https://github.com/meyaomiao/DSH-server-deck#readme",
+  "homepage": "https://github.com/meyaomiao/dsh-server-deck#readme",
   "bugs": {
-    "url": "https://github.com/meyaomiao/DSH-server-deck/issues"
+    "url": "https://github.com/meyaomiao/dsh-server-deck/issues"
   },
   "keywords": [
     "dsh",
