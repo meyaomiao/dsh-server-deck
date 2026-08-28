@@ -1,5 +1,4 @@
 node_modules/
-lib/
 src/client/xterm-css.generated.ts
 *.tsbuildinfo
 .DS_Store
