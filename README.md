@@ -2,6 +2,7 @@
 
 **DeepSeek Harness 的服务器卡片仪表盘** —— 已连接服务器的卡片视图(在线状态 / CPU / 内存 / 磁盘 / 延迟),点卡片直接进入 xterm.js 交互终端。
 
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 [![dsh-plugin](https://img.shields.io/badge/dsh-plugin-4d6bfe)](https://github.com/topics/dsh-plugin)
 [![npm](https://img.shields.io/npm/v/dsh-server-deck)](https://www.npmjs.com/package/dsh-server-deck)
 [![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
