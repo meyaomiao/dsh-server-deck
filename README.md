@@ -99,8 +99,9 @@ pnpm test        # ssh config 解析 / 探针输出解析(Linux+Darwin) / 台账
 
 ## 📋 兼容性
 
-- DeepSeek Harness `0.1.0-rc.x`(web profile)
-- dsh-better-sidebar **可选**(未装时走独立抽屉形态)
+- DeepSeek Harness `0.1.1-rc.2` 与 `0.1.2-alpha.4`(web profile)
+- DSH `0.1.2-alpha.1` 起已删除 `@deepseek-ai/dsh-client-runtime`;本包从 0.1.1 起不再把它写进 `dsh.client.inject`
+- dsh-better-sidebar **可选**(未装时走独立抽屉形态);升 alpha.4 时侧栏请用 `dsh-better-sidebar@alpha`
 - Node ≥ 20;被管理服务器只需开放 SSH(无需预装任何东西)
 
 ## License

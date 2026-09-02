@@ -1,7 +1,7 @@
 {
   "name": "dsh-server-deck",
   "description": "DSH 能力插件:服务器卡片仪表盘——已连接服务器的卡片视图(状态/CPU/内存/磁盘/延迟)+ 点卡片进入 xterm 交互终端;better-sidebar 页签与独立右侧抽屉双形态挂载",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -14,9 +14,7 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "inject": [
-        "@deepseek-ai/dsh-client-runtime"
-      ],
+      "inject": [],
       "platform": "web"
     }
   },
@@ -62,11 +60,11 @@
     "@xterm/xterm": "^5.5.0",
     "esbuild": "^0.28.2",
     "typescript": "^5.6.0",
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-host-webserver": "0.1.0-rc.8"
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-host-webserver": "0.1.2-alpha.4"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc.8"
+    "@deepseek-ai/dsh-host-webserver": "0.1.1-rc.2 || >=0.1.2-alpha.2"
   },
   "engines": {
     "node": ">=20"

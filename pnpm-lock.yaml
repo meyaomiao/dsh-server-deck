@@ -19,8 +19,8 @@ importers:
         specifier: ^4.0.1
         version: 4.0.1
       '@deepseek-ai/dsh-host-webserver':
-        specifier: 0.1.0-rc.8
-        version: 0.1.0-rc.8(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.8(@deepseek-ai/cordis@4.0.1))
+        specifier: 0.1.2-alpha.4
+        version: 0.1.2-alpha.4(@deepseek-ai/cordis@4.0.1)
       '@types/node':
         specifier: ^26.2.0
         version: 26.3.0
@@ -66,19 +66,16 @@ packages:
   '@deepseek-ai/cosmokit@1.8.2':
     resolution: {integrity: sha512-muBOKtSrUKU5m/xpq8ZXWL6hQ/jgd4PhU2PqH97bcxIiLEJfNwZOGQEx4t/aS/GgxRAR+ra9pMHPMtTHU4sqqA==}
 
-  '@deepseek-ai/dsh-host-webserver@0.1.0-rc.8':
-    resolution: {integrity: sha512-MEKFrhvsYfj970QHLaKPpF/sIBpCe8NuSA0HGiWYJctX6TM9N3rLRhXx5p3zATDmXZclu1rbYhIbsqWw/twPig==}
-    peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.1
-      '@deepseek-ai/dsh-invariants': ^0.1.0-rc.8
+  '@deepseek-ai/cosmokit@1.8.3':
+    resolution: {integrity: sha512-qBo+ronVM6Eu2WNVJXi8JcMiqZ19T9BRIpV+5qJUFPXjGH/Z0QKcQMC/IZJ7L394YTOtJgcovbk9qP0w2GsBXQ==}
 
-  '@deepseek-ai/dsh-invariants@0.1.0-rc.8':
-    resolution: {integrity: sha512-u0lYqyxOYwfsVnbsfGXZos5vFvA4cqFnBEW3/ezgljNwkYwzeUP/Y5wjPnQjP+ZzBn3CnVeIF6s2N2Vk3iA5mQ==}
+  '@deepseek-ai/dsh-host-webserver@0.1.2-alpha.4':
+    resolution: {integrity: sha512-EnYP41qppfr7ni1P0n32KNNxQVTT+xFaiRAfns0nocW7PCs/jrAkW8QeyQyLqz7KrPKIaAnBGMhaEdJ9UEp/AA==}
     peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.1
+      '@deepseek-ai/cordis': ^4.0.2
 
-  '@deepseek-ai/schemastery@3.18.1':
-    resolution: {integrity: sha512-Qn0FCSwCQnpnj6SB31I6i2sIKgKWnkbJM8O0EU91Gv2UsYVvtZTl6IA0sCwk2e2MZf5S8w5hpq9QkeVvK9qwxg==}
+  '@deepseek-ai/schemastery@3.18.2':
+    resolution: {integrity: sha512-njDtZsznjYxok7KLLlHOPyuv2efdWVbSflAHgztSfbMsg+CVraEoRe2DjOCgClYv3ZCSm7WXoaUkbB/+RY7tWQ==}
 
   '@esbuild/aix-ppc64@0.28.2':
     resolution: {integrity: sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==}
@@ -280,6 +277,22 @@ packages:
     resolution: {integrity: sha512-lHblz4ahamxpTmnsk+MNTRWsjYKv965MwOrSJyeD588rR3Jcu7swE+0wN5F+PbL5cjgu/9ObkhfzEPuofEMwLA==}
     engines: {node: '>=10.0.0'}
 
+  bytes@3.1.2:
+    resolution: {integrity: sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg==}
+    engines: {node: '>= 0.8'}
+
+  compressible@2.0.18:
+    resolution: {integrity: sha512-AF3r7P5dWxL8MxyITRMlORQNaOA2IkAFaTr4k7BUumjPtRpGDTZpl0Pb1XCO6JeDCBdp126Cgs9sMxqSjgYyRg==}
+    engines: {node: '>= 0.6'}
+
+  compression@1.8.1:
+    resolution: {integrity: sha512-9mAqGPHLakhCLeNyxPkK4xVo746zQ/czLH1Ky+vkitMnWfWZps8r0qXuwhwizagCRttsL4lfG4pIOvaWLpAP0w==}
+    engines: {node: '>= 0.8.0'}
+
+  content-type@2.1.0:
+    resolution: {integrity: sha512-mj7UPXE0jaqaOsukNZRUEfEi2AcL7C/vwmwcHV0O97eO1E1pxBZuyjlZrx5seTaNBg1U6+o35wpa35Qfcc+7ag==}
+    engines: {node: '>=18'}
+
   cpu-features@0.0.10:
     resolution: {integrity: sha512-9IkYqtX3YHPCzoVg1Py+o9057a3i0fp7S530UWokCSaFVTc7CwXPRiOjRjBQQ18ZCNafx78YfnG+HALxtVmOGA==}
     engines: {node: '>=10.0.0'}
@@ -287,13 +300,43 @@ packages:
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
 
+  debug@2.6.9:
+    resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
+    peerDependencies:
+      supports-color: '*'
+    peerDependenciesMeta:
+      supports-color:
+        optional: true
+
   esbuild@0.28.2:
     resolution: {integrity: sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==}
     engines: {node: '>=18'}
     hasBin: true
 
+  mime-db@1.54.0:
+    resolution: {integrity: sha512-aU5EJuIN2WDemCcAp2vFBfp/m4EAhWJnUNSSw0ixs7/kXbd6Pg64EmwJkNdFhB8aWt1sH2CTXrLxo/iAGV3oPQ==}
+    engines: {node: '>= 0.6'}
+
+  ms@2.0.0:
+    resolution: {integrity: sha512-Tpp60P6IUJDTuOq/5Z8cdskzJujfwqfOTkrwIwj7IRISpnkJnT6SyJ4PCPnGMoFjC9ddhal5KVIYtAt97ix05A==}
+
   nan@2.28.0:
     resolution: {integrity: sha512-fTsDz99OTq2sVePhGdp4qQhggZFtKr64ZNVyVajRKtMOkJxYekplBh577PiJB12v/D3s2E5cGtOI45LWp6rnLQ==}
+
+  negotiator@0.6.4:
+    resolution: {integrity: sha512-myRT3DiWPHqho5PrJaIRyaMv2kgYf0mUVgBNOYMuCH5Ki1yEiQaf/ZJuQ62nvpc44wL5WDbTX7yGJi1Neevw8w==}
+    engines: {node: '>= 0.6'}
+
+  negotiator@1.1.0:
+    resolution: {integrity: sha512-NMPBRMJgiQHjbd8phG3Vebdx4kZ1H121rbl5IkMqeOsahptB9BKo/d7oJ3zTXqTgagn2bWlNSXkh0QUGM31RYg==}
+    engines: {node: '>=18'}
+
+  on-headers@1.1.0:
+    resolution: {integrity: sha512-737ZY3yNnXy37FHkQxPzt4UZ2UWPWiCZWLvFZ4fu5cueciegX0zGPnrlY6bwRg4FdQOe9YU8MkmJwGhoMybl8A==}
+    engines: {node: '>= 0.8'}
+
+  safe-buffer@5.2.1:
+    resolution: {integrity: sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==}
 
   safer-buffer@2.1.2:
     resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
@@ -316,6 +359,10 @@ packages:
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
+  vary@1.1.2:
+    resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
+    engines: {node: '>= 0.8'}
+
   ws@8.21.3:
     resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
     engines: {node: '>=10.0.0'}
@@ -337,20 +384,20 @@ snapshots:
 
   '@deepseek-ai/cosmokit@1.8.2': {}
 
-  '@deepseek-ai/dsh-host-webserver@0.1.0-rc.8(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.8(@deepseek-ai/cordis@4.0.1))':
+  '@deepseek-ai/cosmokit@1.8.3': {}
+
+  '@deepseek-ai/dsh-host-webserver@0.1.2-alpha.4(@deepseek-ai/cordis@4.0.1)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.1
-      '@deepseek-ai/dsh-invariants': 0.1.0-rc.8(@deepseek-ai/cordis@4.0.1)
-      '@deepseek-ai/schemastery': 3.18.1
+      '@deepseek-ai/schemastery': 3.18.2
+      compression: 1.8.1
+      negotiator: 1.1.0
+    transitivePeerDependencies:
+      - supports-color
 
-  '@deepseek-ai/dsh-invariants@0.1.0-rc.8(@deepseek-ai/cordis@4.0.1)':
+  '@deepseek-ai/schemastery@3.18.2':
     dependencies:
-      '@deepseek-ai/cordis': 4.0.1
-      '@deepseek-ai/schemastery': 3.18.1
-
-  '@deepseek-ai/schemastery@3.18.1':
-    dependencies:
-      '@deepseek-ai/cosmokit': 1.8.2
+      '@deepseek-ai/cosmokit': 1.8.3
       '@standard-schema/spec': 1.1.0
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -477,6 +524,26 @@ snapshots:
   buildcheck@0.0.7:
     optional: true
 
+  bytes@3.1.2: {}
+
+  compressible@2.0.18:
+    dependencies:
+      mime-db: 1.54.0
+
+  compression@1.8.1:
+    dependencies:
+      bytes: 3.1.2
+      compressible: 2.0.18
+      debug: 2.6.9
+      negotiator: 0.6.4
+      on-headers: 1.1.0
+      safe-buffer: 5.2.1
+      vary: 1.1.2
+    transitivePeerDependencies:
+      - supports-color
+
+  content-type@2.1.0: {}
+
   cpu-features@0.0.10:
     dependencies:
       buildcheck: 0.0.7
@@ -484,6 +551,10 @@ snapshots:
     optional: true
 
   csstype@3.2.3: {}
+
+  debug@2.6.9:
+    dependencies:
+      ms: 2.0.0
 
   esbuild@0.28.2:
     optionalDependencies:
@@ -514,8 +585,22 @@ snapshots:
       '@esbuild/win32-ia32': 0.28.2
       '@esbuild/win32-x64': 0.28.2
 
+  mime-db@1.54.0: {}
+
+  ms@2.0.0: {}
+
   nan@2.28.0:
     optional: true
+
+  negotiator@0.6.4: {}
+
+  negotiator@1.1.0:
+    dependencies:
+      content-type: 2.1.0
+
+  on-headers@1.1.0: {}
+
+  safe-buffer@5.2.1: {}
 
   safer-buffer@2.1.2: {}
 
@@ -534,5 +619,7 @@ snapshots:
   undici-types@5.26.5: {}
 
   undici-types@8.3.0: {}
+
+  vary@1.1.2: {}
 
   ws@8.21.3: {}
