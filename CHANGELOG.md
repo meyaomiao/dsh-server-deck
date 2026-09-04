@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Compatible with DeepSeek Harness `0.1.2-rc.1` (also `0.1.1-rc.2` / `0.1.2-alpha.4`). Use `dsh-better-sidebar@0.18.0` when mounting as a sidebar tab.
+- Test gate: committed ModuleLoader client id and cordis.patch.yml insert.name must equal package.json name.
+
 ## 0.2.1
 
 - Fix client ModuleLoader registration id: use `package.json` `name` (`dsh-server-deck`) instead of the leftover `@dsh-abilities/server-deck`. DSH Desktop 2.0.5 requires the ids to match or the plugin fails to load. Closes #1.
