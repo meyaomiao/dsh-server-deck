@@ -46,7 +46,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-transform-types --test \"test/*.test.ts\""
+    "test": "TZ=Asia/Shanghai node --experimental-transform-types --test \"test/*.test.ts\""
   },
   "dependencies": {
     "ssh2": "^1.16.0",
