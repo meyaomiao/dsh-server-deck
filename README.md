@@ -123,6 +123,8 @@ pnpm test        # ssh config / 探针解析 / 台账校验 / 窗口粒度 / sar
 - dsh-better-sidebar **可选**(未装时走独立抽屉形态);升 alpha.4 时侧栏请用 `dsh-better-sidebar@alpha`
 - Node ≥ 20;被管理服务器只需开放 SSH(无需预装任何东西)。趋势回填依赖远端 `sar`(sysstat),未装则静默跳过。
 
+改仓库前先读 [CONTRIBUTING.md](./CONTRIBUTING.md)（Issue → 分支 → Draft PR）。思考原则见 [AI-ISSUE-WORKFLOW.md](./AI-ISSUE-WORKFLOW.md)。
+
 ## License
 
 [MIT](LICENSE)
