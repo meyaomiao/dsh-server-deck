@@ -1,7 +1,8 @@
-# @dsh-abilities/server-deck:服务器卡片仪表盘。
+# dsh-server-deck:服务器卡片仪表盘 + 趋势记录。
 #
-# Node 半区:/server-deck/api/* REST(主机台账 CRUD + 连通探测 + 指标采集)
-#            与 /server-deck/ws/pty 升级路由(xterm 终端 PTY 桥)。
+# Node 半区:/server-deck/api/* REST(主机台账 CRUD + 连通探测 + 指标采集/趋势查询)
+#            与 /server-deck/ws/pty 升级路由(xterm 终端 PTY 桥);
+#            MetricRecorder 常驻采集(默认 10s)。
 # Client 半区:双形态挂载——ctx.betterSidebar 可用 → registerTab 注册
 #            「服务器」页签;不可用(3s 宽限轮询后)→ 自绘右侧可展开/收起面板。
 #            与 github-workbench 同款协商策略,装载顺序无关。

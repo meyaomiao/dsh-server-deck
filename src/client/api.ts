@@ -2,7 +2,15 @@
  * 浏览器端 API 封装:/server-deck/api/*。
  */
 
-import type { HostEntry, HostInput, HostStatus } from '../types.ts';
+import type {
+  HostEntry,
+  HostInput,
+  HostMetricSeries,
+  HostStatus,
+  MetricBucket,
+  MetricRangeKind,
+  MetricsSettings,
+} from '../types.ts';
 
 async function jfetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/server-deck/api${path}`, {
@@ -40,8 +48,43 @@ export function testHost(id: string): Promise<{ ok: boolean; latencyMs?: number;
   return jfetch(`/hosts/${encodeURIComponent(id)}/test`, { method: 'POST', body: '{}' });
 }
 
-export function getStatuses(): Promise<{ statuses: HostStatus[] }> {
-  return jfetch('/status');
+/** 最新快照;force=true 让主机侧立即探测一轮(工具栏「刷新」)。 */
+export function getStatuses(force = false): Promise<{ statuses: HostStatus[] }> {
+  return jfetch(`/status${force ? '?force=1' : ''}`);
+}
+
+export interface MetricSeriesQuery {
+  range: MetricRangeKind;
+  bucket?: MetricBucket | 'auto';
+  /** range='custom' 时必填(unix ms)。 */
+  from?: number;
+  to?: number;
+}
+
+export interface MetricSeriesResponse {
+  ok: true;
+  from: number;
+  to: number;
+  range: MetricRangeKind;
+  bucket: MetricBucket | 'auto';
+  bucketUsed: MetricBucket;
+  allowedBuckets: MetricBucket[];
+  series: HostMetricSeries[];
+}
+
+export function getMetricSeries(q: MetricSeriesQuery): Promise<MetricSeriesResponse> {
+  const params = new URLSearchParams({ range: q.range, bucket: q.bucket ?? 'auto' });
+  if (q.from !== undefined) params.set('from', String(q.from));
+  if (q.to !== undefined) params.set('to', String(q.to));
+  return jfetch(`/metrics?${params}`);
+}
+
+export function getMetricsSettings(): Promise<{ ok: true; settings: MetricsSettings }> {
+  return jfetch('/metrics/settings');
+}
+
+export function patchMetricsSettings(patch: Partial<MetricsSettings>): Promise<{ ok: true; settings: MetricsSettings }> {
+  return jfetch('/metrics/settings', { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
 export function importSshConfig(dryRun = false): Promise<{
