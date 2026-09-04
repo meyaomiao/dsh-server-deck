@@ -1,9 +1,5 @@
 # Changelog
 
-## 0.2.1
-
-- Fix client ModuleLoader registration id: use `package.json` `name` (`dsh-server-deck`) instead of the leftover `@dsh-abilities/server-deck`. DSH Desktop 2.0.5 requires the ids to match or the plugin fails to load. Closes #1.
-
 ## 0.2.0
 
 - 独立「趋势」视图与卡片视图切换:每台主机 CPU / 内存 / 磁盘三张独立 SVG 趋势图,展示最新值与窗口均值(悬停看最高 / 最低 / 样本数)。
