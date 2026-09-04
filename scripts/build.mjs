@@ -38,10 +38,8 @@ await build({
 
 // 2) 浏览器端:ModuleLoader 工厂包装(与 github-workbench / better-sidebar 同格式)。
 //    react / react-dom / 平台模块不打包;xterm + fit addon 打包进 bundle。
-//    注册 id 必须等于 package.json name:DSH Desktop 2.0.5 起会校验二者一致。
-const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const banner = [
-  `window.__ModuleLoader__.load({ id: ${JSON.stringify(pkg.name)}, factory: (require) => {`,
+  'window.__ModuleLoader__.load({ id: "@dsh-abilities/server-deck", factory: (require) => {',
   'var module = { exports: {} };',
   'var exports = module.exports;',
 ].join('\n');
