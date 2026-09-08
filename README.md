@@ -94,7 +94,7 @@ dsh plugin --profile web add .
 - 所有 API 与 PTY 升级路由**仅回环放行**(127.0.0.1/::1),防 DNS rebinding 与局域网直连;
 - 密码 / 私钥口令单独存放 `~/.dsh/server-deck.secrets.json`(0600),台账文件不含秘密,**API 响应永不回传**;
 - 删除主机仅移出台账并断开连接池,不会在远端执行任何操作;
-- 指标采集通过一段只读 POSIX sh 探针脚本(`top`/`free`/`df`/`uptime`,Linux 与 macOS 宽容双兼容),解析失败的字段显示「—」。
+- 指标采集通过一段只读 POSIX sh 探针（固定交给 `/bin/sh`，不经过登录壳）。Linux 读 `/proc`，兼容 Ubuntu / Debian / RHEL / Alpine / Arch（含 fish、zsh 登录壳）；macOS 走 Darwin 回退。解析失败的字段显示「—」。
 
 ## 🏗️ 架构
 
@@ -121,7 +121,7 @@ pnpm test        # ssh config / 探针解析 / 台账校验 / 窗口粒度 / sar
 - DeepSeek Harness `0.1.2-rc.1`（仍兼容 `0.1.1-rc.2` 与 `0.1.2-alpha.4`，web profile）
 - DSH `0.1.2-alpha.1` 起已删除 `@deepseek-ai/dsh-client-runtime`;本包从 0.1.1 起不再把它写进 `dsh.client.inject`
 - dsh-better-sidebar **可选**(未装时走独立抽屉形态);侧栏请用 `dsh-better-sidebar@0.18.0`
-- Node ≥ 20;被管理服务器只需开放 SSH(无需预装任何东西)。趋势回填依赖远端 `sar`(sysstat),未装则静默跳过。
+- Node ≥ 20;被管理服务器只需开放 SSH 且有 `/bin/sh`（或 `sh`）。登录壳可以是 bash / fish / zsh。趋势回填依赖远端 `sar`(sysstat),未装则静默跳过。
 
 改仓库前先读 [CONTRIBUTING.md](./CONTRIBUTING.md)（Issue → 分支 → Draft PR）。思考原则见 [AI-ISSUE-WORKFLOW.md](./AI-ISSUE-WORKFLOW.md)。
 

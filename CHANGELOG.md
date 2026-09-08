@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Broader server compatibility: probes run in `/bin/sh` (not the login shell), so fish/zsh hosts still report OS and CPU / memory / disk. Linux reads `/proc` instead of GNU `top`/`free` (Ubuntu, Debian, RHEL, Alpine, Arch/CachyOS). macOS Darwin fallbacks unchanged. Closes #10.
+
 ## 0.2.2
 
 - Compatible with DeepSeek Harness `0.1.2-rc.1` (also `0.1.1-rc.2` / `0.1.2-alpha.4`). Use `dsh-better-sidebar@0.18.0` when mounting as a sidebar tab.
