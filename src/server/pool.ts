@@ -111,8 +111,33 @@ export class HostPool {
     });
   }
 
-  /** 在主机上执行单条命令(走池内长连接)。 */
+  /** 在主机上执行单条命令(走池内长连接)。登录壳会解释这条命令,探针不要走这里。 */
   exec(id: string, command: string, timeoutMs = 20_000): Promise<{ code: number | null; stdout: string; stderr: string }> {
+    return this.runExec(id, command, timeoutMs);
+  }
+
+  /**
+   * 把脚本交给 /bin/sh -s(stdin)。命令本身对 fish/zsh 无特殊语法。
+   * /bin/sh 不存在时再试 sh -s。
+   */
+  execSh(id: string, script: string, timeoutMs = 20_000): Promise<{ code: number | null; stdout: string; stderr: string }> {
+    const body = script.endsWith('\n') ? script : `${script}\n`;
+    return this.runExec(id, '/bin/sh -s', timeoutMs, body).then((result) => {
+      if (result.code === 127) return this.runExec(id, 'sh -s', timeoutMs, body);
+      return result;
+    }).catch((error) => {
+      const msg = messageOf(error);
+      if (!/exec 失败|No such file|not found/i.test(msg)) throw error;
+      return this.runExec(id, 'sh -s', timeoutMs, body);
+    });
+  }
+
+  private runExec(
+    id: string,
+    command: string,
+    timeoutMs: number,
+    stdin?: string,
+  ): Promise<{ code: number | null; stdout: string; stderr: string }> {
     return this.connect(id).then(
       (conn) =>
         new Promise((resolve, reject) => {
@@ -133,6 +158,10 @@ export class HostPool {
               clearTimeout(timer);
               resolve({ code, stdout, stderr });
             });
+            if (stdin !== undefined) {
+              stream.write(stdin);
+              stream.end();
+            }
           });
         }),
       (error) => { throw error; },
