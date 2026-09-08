@@ -105,7 +105,7 @@ export class MetricRecorder {
     try {
       await this.ssh.connect(id);
       const started = Date.now();
-      const { stdout } = await this.ssh.exec(id, PROBE_SCRIPT, PROBE_TIMEOUT_MS);
+      const { stdout } = await this.ssh.execSh(id, PROBE_SCRIPT, PROBE_TIMEOUT_MS);
       const latencyMs = Date.now() - started;
       const parsed = parseProbeOutput(stdout);
       const needFull = (this.lastFullAt.get(id) ?? 0) + FULL_META_MS < now;

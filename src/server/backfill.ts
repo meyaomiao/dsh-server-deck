@@ -11,8 +11,8 @@
 import type { MetricSample } from '../types.ts';
 import type { HostPool } from './pool.ts';
 import type { MetricStore } from './metric-store.ts';
+import { SAR_SCRIPT } from './probe.ts';
 
-const SAR_CMD = 'LC_ALL=C sar -u 2>/dev/null; echo "@@SAR-R@@"; LC_ALL=C sar -r 2>/dev/null';
 const ATTEMPT_GAP_MS = 10 * 60_000;
 const SAR_TIMEOUT_MS = 12_000;
 
@@ -104,7 +104,7 @@ export class SarBackfill {
     if (oldest !== undefined && from >= oldest - 60_000) return;
     this.lastAttempt.set(hostId, now);
     try {
-      const { stdout } = await this.pool.exec(hostId, SAR_CMD, SAR_TIMEOUT_MS);
+      const { stdout } = await this.pool.execSh(hostId, SAR_SCRIPT, SAR_TIMEOUT_MS);
       const samples = sarRowsToSamples(parseSarRows(stdout), from, to, now);
       if (samples.length > 0) await this.metrics.appendMany(hostId, samples);
     } catch {
