@@ -1,15 +1,22 @@
 /**
- * 双形态挂载(tab 优先,独立面板兜底):
+ * 三形态挂载(官方原生栏优先 → better-sidebar 页签 → 独立面板兜底):
  *
  * ⚠️ 平台事实(实测):cordis 对未声明 inject 的服务属性访问直接抛错
  * (`cannot get property ... without inject`),且各插件拿到的是兄弟上下文——
  * 「轮询探测 ctx.betterSidebar」永远失败(github-workbench 的旧方案即因此
  * 静默降级成抽屉)。因此这里改为:
- *   - 外层插件无 inject,立即激活;
- *   - 内层用 ctx.plugin({inject:['betterSidebar']}) 动态子插件,由 cordis
- *     原生等待服务就绪(better-sidebar 未安装时该 fiber 永远 INACTIVE,
- *     静默无害);
- *   - 页签挂上后自动收起独立抽屉;宽限期内仍未就绪则先开抽屉兜底。
+ *   - 形态〇(DSH 0.1.5+):`ctx.inject(['sidebarRightTabs'])` 等官方原生
+ *     右侧栏服务 → 注册 tab 类型(kind `server-deck`)+ `sidebar.right.pane.tab`
+ *     / `.title` 座位挂内容体。参照 better-sidebar 0.19 的 native/index.ts:
+ *     座位声明早于服务 provide,不能靠声明触发,必须等服务本身。
+ *   - 形态一(旧宿主):外层插件无强制 inject,内层用
+ *     `ctx.plugin({inject:['betterSidebar']})` 动态子插件,由 cordis 原生等待
+ *     服务就绪(better-sidebar 未安装时该 fiber 永远 INACTIVE,静默无害)。
+ *   - 形态二:宽限期内两种页签都未就绪 → 先开抽屉兜底,页签后到自动收掉。
+ *
+ * 双入口仲裁(防双入口):native 激活时若 sidebar 页签已挂则收掉;
+ * sidebar 服务先到、native 服务后到时同样切到 native。native 座位消失
+ * (仅 HMR/卸载)时置回 none,重载后恢复。
  */
 
 import { createElement } from 'react';
@@ -19,6 +26,10 @@ import { loadPanelWidth, savePanelWidth } from './config.ts';
 import { ensureStyles } from './styles.ts';
 
 export const TAB_ID = 'server-deck:servers';
+
+/** 官方原生右侧栏:本插件的实现 id(kind 的 openTab 名)。 */
+const NATIVE_ID = 'dsh-server-deck';
+const NATIVE_KIND = 'server-deck';
 
 /** 内层子插件上下文的最小形状。 */
 interface InnerCtx {
@@ -30,8 +41,43 @@ interface PluginSpec {
   inject?: string[];
   apply: (ctx: InnerCtx) => void;
 }
+
+/** 官方原生 tab 类型注册表(ctx.sidebarRightTabs)的最小形状。 */
+interface NativeTabRegistry {
+  register(definition: {
+    id: string;
+    kind: string;
+    patterns?: readonly string[];
+    priority?: 'extension' | 'builtin' | 'fallback';
+    canOpen?: (address: string) => boolean;
+    title: (address: string) => string;
+    guide?: readonly { order: number; title: () => string; icon?: unknown }[];
+  }): () => void;
+}
+
+/** 官方原生栏导航控制器(ctx.sidebarRight)的最小形状。 */
+interface NativeSidebarRight {
+  openTab(kind: string, options?: Record<string, unknown>): void;
+}
+
+/** 官方座位系统(ctx.slots)的最小形状。 */
+interface SlotsLike {
+  inject(name: string, fn: () => (() => void) | void): () => void;
+  register(spec: Record<string, unknown>, component: unknown): () => void;
+}
+
+interface InjectedServices {
+  get(name: 'sidebarRightTabs'): NativeTabRegistry | undefined;
+  get(name: 'sidebarRight'): NativeSidebarRight | undefined;
+}
+
 interface MountCtx {
   plugin?: (spec: PluginSpec) => { dispose?: () => void } | void;
+  inject?: (
+    deps: readonly string[],
+    fn: (ctx: InjectedServices) => (() => void) | void,
+  ) => { dispose?: () => void };
+  slots?: SlotsLike;
 }
 
 interface SidebarRegistryLike {
@@ -55,18 +101,40 @@ function serverIcon(size: number = 16): React.ReactNode {
   );
 }
 
+/** 原生座位的内容体:框架注入 sessionId,这里恒可见(仅活动 pane 渲染)。 */
+function NativeBody(): React.ReactNode {
+  return createElement(ServerDeckApp, { visible: true });
+}
+
+/** 原生座位的标签标题:静态文案,忽略框架 props。 */
+function NativeTitle(): React.ReactNode {
+  return '服务器';
+}
+
 export function mountServerDeck(ctx: MountCtx): () => void {
   ensureStyles();
 
-  // hash 自举:#sd-* 开头的深链在页签就绪后主动打开(带 path 种子 → 内容型
-  // 打开,better-sidebar 会自动展开承载面板)。供深链/截图/外部触发使用。
+  // hash 自举:#sd-* 开头的深链在页签就绪后主动打开。供深链/截图/外部触发使用。
   const bootHash = typeof location !== 'undefined' && location.hash.startsWith('#sd-')
     ? location.hash
     : null;
 
+  /** 当前挂载形态:'none' | 'native' | 'sidebar'。 */
+  let form: 'none' | 'native' | 'sidebar' = 'none';
+  let nativeDisposer: (() => void) | null = null;
   let tabDisposer: (() => void) | null = null;
   let drawerDisposer: (() => void) | null = null;
   let fiberDisposer: (() => void) | undefined;
+  let seatDisposer: (() => void) | undefined;
+
+  let nativeOpen: (() => void) | null = null;
+  let sidebarOpen: (() => void) | null = null;
+
+  /** 深链/外部触发的统一打开入口(按当前形态分派)。 */
+  const openActiveTab = (): void => {
+    if (form === 'native') nativeOpen?.();
+    else if (form === 'sidebar') sidebarOpen?.();
+  };
 
   const descriptor = {
     id: TAB_ID,
@@ -78,7 +146,86 @@ export function mountServerDeck(ctx: MountCtx): () => void {
       createElement(ServerDeckApp, { visible: props.visible }),
   };
 
-  // 形态一:better-sidebar 就绪 → 注册页签(cordis 负责等待时机)
+  // ---------- 形态〇:官方原生右侧栏(DSH 0.1.5+) ----------
+
+  if (typeof ctx.inject === 'function') {
+    try {
+      const seat = ctx.inject(['sidebarRightTabs', 'sidebarRight'], (injected) => {
+        const tabs = injected.get('sidebarRightTabs');
+        if (tabs === undefined || typeof tabs.register !== 'function') return;
+        const sidebarRight = injected.get('sidebarRight');
+
+        // 双入口仲裁:better-sidebar 页签已挂 → 收掉,切到原生。
+        if (form === 'sidebar') {
+          tabDisposer?.();
+          tabDisposer = null;
+        }
+        form = 'native';
+
+        // 阶段一:tab 类型(页面型,无 patterns;extension 优先级)。
+        const disposeType = tabs.register({
+          id: NATIVE_ID,
+          kind: NATIVE_KIND,
+          priority: 'extension',
+          title: () => '服务器',
+          guide: [{
+            order: 45,
+            title: () => '服务器',
+            icon: (props: { size?: number }) => serverIcon(props.size ?? 16),
+          }],
+        });
+
+        // 阶段二:内容体 + 标签标题座位(以实现 id 为 key)。
+        const slots = ctx.slots;
+        const disposeSlots: (() => void)[] = [];
+        if (slots !== undefined) {
+          disposeSlots.push(
+            slots.inject('sidebar.right.pane.tab', () => slots.register({
+              name: 'sidebar.right.pane.tab',
+              key: NATIVE_ID,
+              inject: (sessionId: string) => ({ sessionId }),
+            }, NativeBody)),
+            slots.inject('sidebar.right.pane.tab.title', () => slots.register({
+              name: 'sidebar.right.pane.tab.title',
+              key: NATIVE_ID,
+              inject: () => ({}),
+            }, NativeTitle)),
+          );
+        } else {
+          console.warn('[server-deck] ctx.slots 不可用,原生内容体未注册');
+        }
+
+        nativeOpen = (): void => {
+          try { sidebarRight?.openTab(NATIVE_KIND); }
+          catch (error) { console.warn('[server-deck] 原生 openTab 失败:', error); }
+        };
+
+        nativeDisposer = (): void => {
+          for (const dispose of disposeSlots.reverse()) dispose();
+          disposeType();
+          nativeOpen = null;
+          if (form === 'native') form = 'none';
+        };
+
+        if (bootHash !== null) nativeOpen();
+        (globalThis as Record<string, unknown>).__serverDeck = { open: openActiveTab };
+
+        // 原生页签已挂:独立抽屉若已兜底开启,收掉(宽度偏好已持久化)。
+        if (drawerDisposer !== null) {
+          drawerDisposer();
+          drawerDisposer = null;
+        }
+
+        return nativeDisposer;
+      });
+      seatDisposer = typeof seat?.dispose === 'function' ? () => seat.dispose?.() : undefined;
+    } catch (error) {
+      console.warn('[server-deck] 原生右侧栏等待启动失败:', error);
+    }
+  }
+
+  // ---------- 形态一:better-sidebar 页签(旧宿主回退) ----------
+
   if (typeof ctx.plugin === 'function') {
     try {
       const fiber = ctx.plugin({
@@ -86,33 +233,39 @@ export function mountServerDeck(ctx: MountCtx): () => void {
         inject: ['betterSidebar'],
         apply: (inner) => {
           inner.effect(() => {
+            // 双入口仲裁:原生栏已激活 → 本形态静默让位。
+            if (form === 'native') return () => undefined;
             try {
               tabDisposer = inner.betterSidebar.registerTab(descriptor) ?? null;
             } catch (error) {
               console.warn('[server-deck] registerTab 失败:', error);
               return;
             }
-            if (bootHash !== null) {
+            form = 'sidebar';
+            sidebarOpen = (): void => {
               try {
                 // path 种子使本次成为内容型打开 → 面板自动展开
+                inner.betterSidebar.openTab?.({ type: TAB_ID, path: '#auto', title: '服务器' });
+              } catch (error) { console.warn('[server-deck] open 失败:', error); }
+            };
+            if (bootHash !== null) {
+              try {
                 inner.betterSidebar.openTab?.({ type: TAB_ID, path: '#boot', title: '服务器' });
               } catch (error) {
                 console.warn('[server-deck] 深链打开页签失败:', error);
               }
             }
-            // 自动化/调试钩子:外部触发"展开并聚焦本页签"
-            (globalThis as Record<string, unknown>).__serverDeck = {
-              open: (): void => {
-                try { inner.betterSidebar.openTab?.({ type: TAB_ID, path: '#auto', title: '服务器' }); }
-                catch (error) { console.warn('[server-deck] open 失败:', error); }
-              },
-            };
+            (globalThis as Record<string, unknown>).__serverDeck = { open: openActiveTab };
             // 页签已挂:独立抽屉若已兜底开启,收掉(宽度偏好已持久化)
             if (drawerDisposer !== null) {
               drawerDisposer();
               drawerDisposer = null;
             }
-            return () => { tabDisposer = null; };
+            return () => {
+              tabDisposer = null;
+              sidebarOpen = null;
+              if (form === 'sidebar') form = 'none';
+            };
           }, 'server-deck: register tab');
         },
       });
@@ -124,10 +277,11 @@ export function mountServerDeck(ctx: MountCtx): () => void {
     console.warn('[server-deck] ctx.plugin 不可用,仅独立面板形态可用');
   }
 
-  // 形态二:宽限期内页签未就绪 → 独立右侧面板兜底(之后页签就绪会自动收掉)
+  // ---------- 形态二:宽限期内无任何页签 → 独立右侧面板兜底 ----------
+
   const started = Date.now();
   const timer = setInterval(() => {
-    if (tabDisposer !== null || drawerDisposer !== null) {
+    if (form !== 'none' || drawerDisposer !== null) {
       clearInterval(timer);
       return;
     }
@@ -140,7 +294,9 @@ export function mountServerDeck(ctx: MountCtx): () => void {
   return () => {
     clearInterval(timer);
     drawerDisposer?.();
+    nativeDisposer?.();
     tabDisposer?.();
+    seatDisposer?.();
     fiberDisposer?.();
   };
 }
