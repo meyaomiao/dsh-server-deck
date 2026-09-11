@@ -7,6 +7,23 @@
 [![npm](https://img.shields.io/npm/v/dsh-server-deck)](https://www.npmjs.com/package/dsh-server-deck)
 [![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
+## ⭐ 欢迎点星收藏
+
+如果 server-deck 帮到了你，欢迎到 [GitHub 仓库](https://github.com/meyaomiao/dsh-server-deck) 点个 Star ⭐，让更多 DSH 用户看到它。问题与建议请提 Issue。
+
+## 📋 兼容性
+
+| 插件版本 | 状态 | 对应 DSH |
+|---|---|---|
+| **0.3.x**（当前主线） | ✅ | **0.1.5-rc.1 / 0.1.5-rc.2**（及之后的 0.1.5 线；页签走官方原生右侧栏） |
+| 0.2.x | 🔧 维护态（仅修 bug） | DSH ≤ 0.1.2-rc.1（仍兼容 0.1.1-rc.2 / 0.1.2-alpha.4；better-sidebar 页签或独立抽屉） |
+
+### 本次升级功能变化
+
+- **页签宿主迁移**：DSH 0.1.5+ 优先注册官方原生右侧栏（`ctx.sidebarRightTabs`），better-sidebar 降为旧宿主回退，独立抽屉兜底不变。
+- **官方已有的交给官方**：不画赞踩、不画交付文件卡。服务器页签、PTY、指标卡新旧两线都在。
+- 0.3.x 在 DSH 0.1.2 + better-sidebar 上 **页签会退化成独立抽屉**；要旧页签请留在 0.2.x。
+
 <p align="center">
   <img src="docs/screenshots/dashboard.png" width="420" alt="服务器卡片仪表盘">
 </p>
@@ -115,30 +132,6 @@ pnpm build       # esbuild:server bundle + client bundle(ModuleLoader 包装)
 pnpm typecheck   # tsc --noEmit
 pnpm test        # ssh config / 探针解析 / 台账校验 / 窗口粒度 / sar 回填 / 时序落盘
 ```
-
-## 📋 兼容性
-
-| 版本线 | 状态 | 对应 DSH |
-|---|---|---|
-| **0.3.x** | ✅ 当前主线 | **DSH 0.1.5-rc.1+**(页签优先注册官方原生右侧栏) |
-| 0.2.x | 🔧 维护态(仅修 bug) | DSH ≤ 0.1.2-rc.1(仍兼容 0.1.1-rc.2 / 0.1.2-alpha.4,better-sidebar 页签或独立抽屉) |
-
-### 0.2.x → 0.3.x 功能变化
-
-- **页签宿主迁移**:DSH 0.1.5+ 上优先注册官方原生右侧栏(`ctx.sidebarRightTabs` + `sidebar.right.pane.tab` 座位),better-sidebar 降级为旧宿主回退,独立抽屉兜底不变;两种页签形态互斥仲裁,杜绝双入口
-- **深链双形状**:`#sd-*` 自举与 `__serverDeck.open()` 在原生形态走 `sidebarRight.openTab('server-deck')`,旧宿主走 `betterSidebar.openTab`
-- `dsh.client.inject` 增加 `slots`(官方座位注册授权);peer 范围补 `^0.1.5-rc.1`
-- **无功能移除**:服务器页签、PTY 终端、指标卡片网格在新旧两线均可用
-
-其他:
-
-- DSH `0.1.2-alpha.1` 起已删除 `@deepseek-ai/dsh-client-runtime`;本包从 0.1.1 起不再把它写进 `dsh.client.inject`
-- dsh-better-sidebar **可选**(未装且非 0.1.5 宿主时走独立抽屉形态);旧宿主侧栏请用 `dsh-better-sidebar@0.18.x`
-- Node ≥ 20;被管理服务器只需开放 SSH 且有 `/bin/sh`（或 `sh`）。登录壳可以是 bash / fish / zsh。趋势回填依赖远端 `sar`(sysstat),未装则静默跳过。
-
-## ⭐ 支持这个项目
-
-如果 server-deck 帮到了你,欢迎到 [GitHub 仓库](https://github.com/meyaomiao/dsh-server-deck) 点个 Star ⭐,让更多 DSH 用户看到它。问题与功能建议请提 Issue。
 
 改仓库前先读 [CONTRIBUTING.md](./CONTRIBUTING.md)（Issue → 分支 → Draft PR）。思考原则见 [AI-ISSUE-WORKFLOW.md](./AI-ISSUE-WORKFLOW.md)。
 
