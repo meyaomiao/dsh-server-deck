@@ -10,7 +10,9 @@ const STYLE_ID = 'server-deck-styles';
 const APP_CSS = `
 .sd-app{display:flex;flex-direction:column;height:100%;min-height:0;
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-  background:var(--dsw-alias-bg-layer-1,#16181d);color:var(--dsw-alias-label-primary,#e6edf3)}
+  /* 透明根:官方面板/better-sidebar 页签/独立抽屉各自提供底色,
+     组件不再自刷背景(避免遮住宿主 0.1.5 新调色板)。 */
+  background:transparent;color:var(--dsw-alias-label-primary,#e6edf3)}
 .sd-toolbar{display:flex;align-items:center;gap:6px;padding:8px 10px;
   border-bottom:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.2));flex:none}
 .sd-toolbar h2{margin:0;font-size:13px;font-weight:600;

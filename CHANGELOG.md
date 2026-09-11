@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- DSH 0.1.5-rc.1 / 0.1.5-rc.2：页签优先注册官方原生右侧栏；better-sidebar 降为旧宿主回退。
+- 官方已有的赞踩、交付文件卡不画。
+- README：兼容表与点星引导前置。0.2.x 进入维护态（DSH ≤ 0.1.2-rc.1）。
+
 ## 0.2.3
 
 - Broader server compatibility: probes run in `/bin/sh` (not the login shell), so fish/zsh hosts still report OS and CPU / memory / disk. Linux reads `/proc` instead of GNU `top`/`free` (Ubuntu, Debian, RHEL, Alpine, Arch/CachyOS). macOS Darwin fallbacks unchanged. Closes #10.
