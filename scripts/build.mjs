@@ -32,7 +32,7 @@ await build({
   platform: 'node',
   target: 'node20',
   sourcemap: true,
-  external: ['ssh2', 'ws', 'cpu-features'],
+  external: ['ssh2', 'ws', 'cpu-features', '@deepseek-ai/*'],
   plugins: [nativeExternal],
 });
 
