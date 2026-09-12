@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Windows OpenSSH：POSIX 探针拿不到 CPU/内存时再跑 `powershell.exe -EncodedCommand`（CIM），卡片能出系统名 / CPU / 内存 / 磁盘。Closes #14.
+- FreeBSD / OpenBSD：无 `/proc` 时读 `kern.cp_time` 与 `hw.physmem`。
+- Linux / macOS 路径不变；有 CPU 或内存时不打 PowerShell。
+
 ## 0.3.0
 
 - DSH 0.1.5-rc.1 / 0.1.5-rc.2：页签优先注册官方原生右侧栏；better-sidebar 降为旧宿主回退。
