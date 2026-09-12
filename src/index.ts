@@ -6,6 +6,7 @@
  *   - /server-deck/ws/pty 升级路由:xterm 终端 ↔ ssh2 shell 双向桥
  *   - MetricRecorder 常驻采集(默认 10s),与前端是否打开面板无关
  *   - SarBackfill:本地序列未覆盖的窗口,从服务器 sysstat(sar)回填历史
+ *   - server_deck_hosts / server_deck_exec:对话里对台账主机非交互 SSH 下发(不走卡片 xterm)
  *
  * 客户端(lib/client.js):双形态挂载——ctx.betterSidebar 可用 → registerTab
  * 「服务器」页签;不可用 → 自绘右侧展开/收起面板(见 src/mount.ts)。
@@ -20,12 +21,13 @@ import { HostStore } from './server/store.ts';
 import { MetricStore } from './server/metric-store.ts';
 import { MetricRecorder } from './server/recorder.ts';
 import { SarBackfill } from './server/backfill.ts';
+import { registerExecTools } from './server/exec-tools.ts';
 
 /** Cordis 插件名,loader 诊断使用。 */
 const name = 'server-deck';
 
-/** 本插件依赖的上下文服务:webServer 注册 HTTP 与 upgrade 路由。 */
-const inject = ['webServer'];
+/** 本插件依赖的上下文服务:webServer 注册 HTTP 与 upgrade 路由;tools / systemPrompt 注册对话下发。 */
+const inject = ['webServer', 'tools', 'systemPrompt'];
 
 /** Cordis 插件体。 */
 export function apply(ctx: Context): void {
@@ -72,6 +74,8 @@ export function apply(ctx: Context): void {
       ctx.webServer.registerUpgrade(createPtyRoute(pool, (id) => store.get(id) !== undefined)),
     'server-deck: pty upgrade route',
   );
+
+  registerExecTools(ctx as Parameters<typeof registerExecTools>[0], store, pool, recorder);
 }
 
 export { inject, name };
