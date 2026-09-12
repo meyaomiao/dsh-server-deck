@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProbeOutput } from '../src/server/probe.ts';
+import {
+  parseProbeOutput,
+  hasUsefulMetrics,
+  encodePowerShell,
+  WINDOWS_PROBE_COMMAND,
+  WINDOWS_PROBE_SCRIPT,
+  PROBE_SCRIPT,
+} from '../src/server/probe.ts';
 
 const LINUX_OUT = [
   '@@OS@@', 'Linux', 'PRETTY_NAME="Ubuntu 22.04.4 LTS"', '@@UP@@',
@@ -97,9 +104,78 @@ test('Alpine 无 MemAvailable 时用 Free+Buffers+Cached', () => {
   assert.ok(r.memPercent !== undefined && Math.abs(r.memPercent - 31.3) < 0.2);
 });
 
-test('探针脚本不依赖登录壳语法', async () => {
-  const { PROBE_SCRIPT } = await import('../src/server/probe.ts');
+test('探针脚本不依赖登录壳语法', () => {
   assert.equal(PROBE_SCRIPT.includes('(top'), false);
   assert.equal(PROBE_SCRIPT.includes('nproc'), false);
   assert.equal(PROBE_SCRIPT.includes('free -m'), false);
+  assert.equal(PROBE_SCRIPT.includes('kern.cp_time'), true);
+  assert.equal(PROBE_SCRIPT.includes('hw.physmem'), true);
+});
+
+const WINDOWS_OUT = [
+  '@@OS@@',
+  'Windows',
+  'PRETTY_NAME="Microsoft Windows 11 家庭版"',
+  '@@UP@@',
+  '12632',
+  '@@CORES@@',
+  '12',
+  '@@CPU@@',
+  'winload=28',
+  '@@MEM@@',
+  'MemTotal: 33410932 kB',
+  'MemFree: 18645628 kB',
+  '@@DISK@@',
+  'C: 975391740 146911732 828480008 15% C:\\',
+].join('\r\n');
+
+test('解析 Windows CIM 探针输出(含 CRLF 与中文 Caption)', () => {
+  const r = parseProbeOutput(WINDOWS_OUT);
+  assert.equal(r.osName, 'Microsoft Windows 11 家庭版');
+  assert.equal(r.uptimeText, '3:30');
+  assert.equal(r.cores, 12);
+  assert.equal(r.cpuPercent, 28);
+  assert.equal(r.diskPercent, 15);
+  // (33410932-18645628)/33410932 ≈ 44.2
+  assert.ok(r.memPercent !== undefined && Math.abs(r.memPercent - 44.2) < 0.2);
+  assert.equal(hasUsefulMetrics(r), true);
+});
+
+test('Windows EncodedCommand 避开登录壳语法', () => {
+  assert.equal(WINDOWS_PROBE_COMMAND.includes('cmd.exe /c'), true);
+  assert.equal(WINDOWS_PROBE_COMMAND.includes('EncodedCommand'), true);
+  assert.equal(WINDOWS_PROBE_COMMAND.includes('&&'), false);
+  assert.equal(WINDOWS_PROBE_SCRIPT.includes('Get-CimInstance'), true);
+  const encoded = encodePowerShell(WINDOWS_PROBE_SCRIPT);
+  assert.equal(encoded.length > 80, true);
+  assert.equal(Buffer.from(encoded, 'base64').toString('utf16le'), WINDOWS_PROBE_SCRIPT);
+});
+
+const FREEBSD_OUT = [
+  '@@OS@@', 'FreeBSD', '@@UP@@',
+  ' 10:00AM  up 5 days,  2:03, 1 user, load averages: 0.10 0.12 0.08',
+  '@@CORES@@', '4', '@@CPU@@',
+  'cp_time 100 0 50 10 840 200 0 80 20 900',
+  '@@MEM@@',
+  'physmem 8589934592 4096 524288 131072',
+  '@@DISK@@',
+  '/dev/ada0p2    200000000  80000000  120000000  40% /',
+].join('\n');
+
+test('解析 FreeBSD sysctl 探针输出', () => {
+  const r = parseProbeOutput(FREEBSD_OUT);
+  assert.equal(r.osName, 'FreeBSD');
+  assert.equal(r.uptimeText, '5 days, 2:03');
+  assert.equal(r.cores, 4);
+  assert.equal(r.diskPercent, 40);
+  // idle Δ=60 total Δ=200 → 70%
+  assert.equal(r.cpuPercent, 70);
+  // freeBytes=(524288+131072)*4096 / 8589934592 → 68.8% used
+  assert.ok(r.memPercent !== undefined && Math.abs(r.memPercent - 68.8) < 0.2);
+});
+
+test('Linux 有 CPU 或内存时视为有用,Windows 空输出则否', () => {
+  assert.equal(hasUsefulMetrics(parseProbeOutput(PROC_OUT)), true);
+  assert.equal(hasUsefulMetrics(parseProbeOutput('nothing')), false);
+  assert.equal(hasUsefulMetrics({ osName: 'Windows', diskPercent: 15 }), false);
 });

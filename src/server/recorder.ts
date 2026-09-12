@@ -5,7 +5,7 @@
 
 import type { HostStatus } from '../types.ts';
 import type { HostPool } from './pool.ts';
-import { PROBE_SCRIPT, parseProbeOutput } from './probe.ts';
+import { PROBE_SCRIPT, WINDOWS_PROBE_COMMAND, hasUsefulMetrics, parseProbeOutput } from './probe.ts';
 import type { HostStore } from './store.ts';
 import type { MetricStore } from './metric-store.ts';
 
@@ -105,9 +105,14 @@ export class MetricRecorder {
     try {
       await this.ssh.connect(id);
       const started = Date.now();
-      const { stdout } = await this.ssh.execSh(id, PROBE_SCRIPT, PROBE_TIMEOUT_MS);
+      const posix = await this.ssh.execSh(id, PROBE_SCRIPT, PROBE_TIMEOUT_MS);
+      let parsed = parseProbeOutput(posix.stdout);
+      if (!hasUsefulMetrics(parsed)) {
+        const win = await this.ssh.exec(id, WINDOWS_PROBE_COMMAND, PROBE_TIMEOUT_MS);
+        const winParsed = parseProbeOutput(win.stdout);
+        if (hasUsefulMetrics(winParsed)) parsed = winParsed;
+      }
       const latencyMs = Date.now() - started;
-      const parsed = parseProbeOutput(stdout);
       const needFull = (this.lastFullAt.get(id) ?? 0) + FULL_META_MS < now;
       if (needFull) {
         this.lastFullAt.set(id, now);
