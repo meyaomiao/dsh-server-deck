@@ -36,7 +36,7 @@
 | 元素 | 说明 |
 |---|---|
 | 🟢🟡🔴⚪ 状态点 | 在线(带呼吸光晕)/ 离线 / 探测中 / 未知 |
-| 系统信息行 | OS 名称(Linux PRETTY_NAME / macOS 回退)、运行时长、核数、握手延迟 |
+| 系统信息行 | OS 名称(Linux PRETTY_NAME / macOS / Windows Caption / BSD uname)、运行时长、核数、握手延迟 |
 | 三条用量条 | CPU · 内存 · 磁盘,<60% 绿 / ≥60% 黄 / ≥85% 红 |
 | 错误详情 | 离线时内联展示失败原因(悬停看全文) |
 
@@ -111,7 +111,7 @@ dsh plugin --profile web add .
 - 所有 API 与 PTY 升级路由**仅回环放行**(127.0.0.1/::1),防 DNS rebinding 与局域网直连;
 - 密码 / 私钥口令单独存放 `~/.dsh/server-deck.secrets.json`(0600),台账文件不含秘密,**API 响应永不回传**;
 - 删除主机仅移出台账并断开连接池,不会在远端执行任何操作;
-- 指标采集通过一段只读 POSIX sh 探针（固定交给 `/bin/sh`，不经过登录壳）。Linux 读 `/proc`，兼容 Ubuntu / Debian / RHEL / Alpine / Arch（含 fish、zsh 登录壳）；macOS 走 Darwin 回退。解析失败的字段显示「—」。
+- 指标采集：Linux / macOS / BSD 走只读 POSIX sh 探针（固定交给 `/bin/sh`，不经过登录壳；Linux 读 `/proc`，FreeBSD/OpenBSD 读 `sysctl`，macOS Darwin 回退）。Windows OpenSSH 无 sh 时再跑一次 `powershell.exe -EncodedCommand`（CIM）。解析失败的字段显示「—」。
 
 ## 🏗️ 架构
 
