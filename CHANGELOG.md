@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- 对话工具 `server_deck_hosts` / `server_deck_exec`：对台账主机非交互 SSH 下发（不走卡片 xterm，不暴露浏览器 REST）。Closes #16.
+- Windows OpenSSH：命令包一层 EncodedCommand + 内层 `cmd.exe /c`；已指定 cmd/powershell/pwsh 则不包装。
+
 ## 0.3.1
 
 - Windows OpenSSH：POSIX 探针拿不到 CPU/内存时再跑 `powershell.exe -EncodedCommand`（CIM），卡片能出系统名 / CPU / 内存 / 磁盘。Closes #14.
