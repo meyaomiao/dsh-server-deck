@@ -111,6 +111,7 @@ dsh plugin --profile web add .
 - 所有 API 与 PTY 升级路由**仅回环放行**(127.0.0.1/::1),防 DNS rebinding 与局域网直连;
 - 密码 / 私钥口令单独存放 `~/.dsh/server-deck.secrets.json`(0600),台账文件不含秘密,**API 响应永不回传**;
 - 删除主机仅移出台账并断开连接池,不会在远端执行任何操作;
+- 对话工具 `server_deck_hosts` / `server_deck_exec` 走同一条 SSH 连接池做非交互下发,不经过卡片 xterm,也不暴露成浏览器 REST;
 - 指标采集：Linux / macOS / BSD 走只读 POSIX sh 探针（固定交给 `/bin/sh`，不经过登录壳；Linux 读 `/proc`，FreeBSD/OpenBSD 读 `sysctl`，macOS Darwin 回退）。Windows OpenSSH 无 sh 时再跑一次 `powershell.exe -EncodedCommand`（CIM）。解析失败的字段显示「—」。
 
 ## 🏗️ 架构
