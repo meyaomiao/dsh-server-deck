@@ -3,6 +3,7 @@
  * 与前端是否打开面板无关。面板「刷新」读 latest 快照,可选 force 打一轮。
  */
 
+import { accumulateNetMonth } from '../metrics.ts';
 import type { HostStatus } from '../types.ts';
 import type { HostPool } from './pool.ts';
 import { PROBE_SCRIPT, WINDOWS_PROBE_COMMAND, hasUsefulMetrics, parseProbeOutput } from './probe.ts';
@@ -122,12 +123,29 @@ export class MetricRecorder {
           cores: parsed.cores,
         });
       }
+      const prevNet = this.metrics.getNetMonth(id);
+      const month = await this.metrics.applyNetSample(id, now, parsed.netRxBytes, parsed.netTxBytes).catch(() =>
+        accumulateNetMonth(prevNet, now, parsed.netRxBytes, parsed.netTxBytes));
+      let netRxBps = parsed.netRxBps;
+      let netTxBps = parsed.netTxBps;
+      const dtSec = prevNet?.lastT !== undefined ? (now - prevNet.lastT) / 1000 : 0;
+      if (netRxBps === undefined && parsed.netRxBytes !== undefined && prevNet?.lastRx !== undefined && dtSec > 0 && parsed.netRxBytes >= prevNet.lastRx) {
+        netRxBps = Math.round((parsed.netRxBytes - prevNet.lastRx) / dtSec);
+      }
+      if (netTxBps === undefined && parsed.netTxBytes !== undefined && prevNet?.lastTx !== undefined && dtSec > 0 && parsed.netTxBytes >= prevNet.lastTx) {
+        netTxBps = Math.round((parsed.netTxBytes - prevNet.lastTx) / dtSec);
+      }
       const status: HostStatus = {
         ...base,
         ...this.meta.get(id),
         cpuPercent: parsed.cpuPercent,
         memPercent: parsed.memPercent,
         diskPercent: parsed.diskPercent,
+        netRxBps,
+        netTxBps,
+        monthRxBytes: month.rxBytes,
+        monthTxBytes: month.txBytes,
+        monthKey: month.ym,
         state: 'online',
         latencyMs,
         probedAt: new Date().toISOString(),
@@ -142,11 +160,15 @@ export class MetricRecorder {
       });
       return status;
     } catch (error) {
+      const month = this.metrics.getNetMonth(id);
       const status: HostStatus = {
         ...base,
         state: 'offline',
         error: error instanceof Error ? error.message : String(error),
         probedAt: new Date().toISOString(),
+        monthRxBytes: month?.rxBytes,
+        monthTxBytes: month?.txBytes,
+        monthKey: month?.ym,
       };
       await this.metrics.append(id, { t: now, online: false }).catch(() => { /* 离线也尽量记 */ });
       return status;

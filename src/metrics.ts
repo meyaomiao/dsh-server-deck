@@ -10,6 +10,7 @@ import type {
   MetricRangeKind,
   MetricSample,
   MetricsSettings,
+  NetMonthState,
 } from './types.ts';
 
 export const BUCKET_MS: Record<MetricBucket, number> = {
@@ -214,4 +215,83 @@ export function assertHostId(id: string): string {
     throw Object.assign(new Error('主机 id 无效'), { status: 400 });
   }
   return id;
+}
+
+/** 本地时区 YYYY-MM。 */
+export function monthKey(now: number): string {
+  const d = new Date(now);
+  return `${String(d.getFullYear())}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export function normalizeNetMonth(raw: unknown): NetMonthState | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.ym !== 'string' || !/^\d{4}-\d{2}$/.test(o.ym)) return undefined;
+  const rxBytes = Number(o.rxBytes);
+  const txBytes = Number(o.txBytes);
+  if (!Number.isFinite(rxBytes) || !Number.isFinite(txBytes) || rxBytes < 0 || txBytes < 0) return undefined;
+  const state: NetMonthState = { ym: o.ym, rxBytes, txBytes };
+  const lastRx = Number(o.lastRx);
+  const lastTx = Number(o.lastTx);
+  const lastT = Number(o.lastT);
+  if (Number.isFinite(lastRx) && lastRx >= 0) state.lastRx = lastRx;
+  if (Number.isFinite(lastTx) && lastTx >= 0) state.lastTx = lastTx;
+  if (Number.isFinite(lastT) && lastT > 0) state.lastT = lastT;
+  return state;
+}
+
+/**
+ * 相邻采集点差分累加当月流量。
+ * 首点无增量;计数器变小(回绕/重启)跳过该段;换月清零累计,仍用上次计数器算新月第一段。
+ */
+export function accumulateNetMonth(
+  prev: NetMonthState | undefined,
+  now: number,
+  rx?: number,
+  tx?: number,
+): NetMonthState {
+  const ym = monthKey(now);
+  if (rx === undefined && tx === undefined) {
+    if (prev !== undefined && prev.ym === ym) return prev;
+    return { ym, rxBytes: 0, txBytes: 0 };
+  }
+  const rxBytes = prev !== undefined && prev.ym === ym ? prev.rxBytes : 0;
+  const txBytes = prev !== undefined && prev.ym === ym ? prev.txBytes : 0;
+  let rxAdd = 0;
+  let txAdd = 0;
+  if (rx !== undefined && prev?.lastRx !== undefined && rx >= prev.lastRx) rxAdd = rx - prev.lastRx;
+  if (tx !== undefined && prev?.lastTx !== undefined && tx >= prev.lastTx) txAdd = tx - prev.lastTx;
+  return {
+    ym,
+    rxBytes: rxBytes + rxAdd,
+    txBytes: txBytes + txAdd,
+    lastRx: rx ?? prev?.lastRx,
+    lastTx: tx ?? prev?.lastTx,
+    lastT: now,
+  };
+}
+
+function formatSize(n: number | undefined, suffix: string): string {
+  if (n === undefined || !Number.isFinite(n) || n < 0) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  const shown = i === 0
+    ? String(Math.round(v))
+    : (Math.round(v * 10) / 10).toFixed(1).replace(/\.0$/, '');
+  return `${shown} ${units[i]}${suffix}`;
+}
+
+/** 字节 → `12.3 MB`。无效为 —。 */
+export function formatBytes(n: number | undefined): string {
+  return formatSize(n, '');
+}
+
+/** 字节/秒 → `12.3 MB/s`。无效为 —。 */
+export function formatBps(n: number | undefined): string {
+  return formatSize(n, '/s');
 }

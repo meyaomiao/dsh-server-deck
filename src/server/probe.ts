@@ -2,7 +2,8 @@
  * 指标探测:POSIX sh 脚本(stdin 交给 /bin/sh -s,不经过登录壳语法)
  * + Windows CIM(EncodedCommand,避开 PowerShell 登录壳语法)
  * + 宽容解析器。Linux 主路径读 /proc;无 /proc 时 FreeBSD/OpenBSD 读 sysctl;
- * Darwin 回退 top/vm_stat。任何字段解析失败都置空,由前端显示「—」。
+ * Darwin 回退 top/vm_stat。网卡计数夹在 CPU 的 sleep 两侧打两次快照。
+ * 任何字段解析失败都置空,由前端显示「—」。
  */
 
 /** 经 HostPool.execSh 喂给 /bin/sh -s。禁止依赖登录壳;禁止 bash/fish 语法。 */
@@ -26,6 +27,12 @@ export const PROBE_SCRIPT = [
   'else',
   '  sysctl -n hw.ncpu 2>/dev/null',
   'fi',
+  'echo "@@NET1@@"',
+  'if [ -r /proc/net/dev ]; then',
+  '  cat /proc/net/dev',
+  'elif command -v netstat >/dev/null 2>&1; then',
+  "  netstat -ibn 2>/dev/null | awk 'NR==1 { for (i=1;i<=NF;i++) { if ($i==\"Ibytes\") ib=i; if ($i==\"Obytes\") ob=i } next } ib>0 && ob>0 && $0 ~ /<Link/ { print \"net\", $1, $ib, $ob }'",
+  'fi',
   'echo "@@CPU@@"',
   'if [ -r /proc/stat ]; then',
   '  read -r _ u1 n1 s1 i1 w1 _rest1 < /proc/stat',
@@ -38,6 +45,12 @@ export const PROBE_SCRIPT = [
   '  echo "cp_time $c1 $c2"',
   'else',
   '  top -l 2 2>/dev/null | grep -i "CPU usage" | tail -n 1',
+  'fi',
+  'echo "@@NET2@@"',
+  'if [ -r /proc/net/dev ]; then',
+  '  cat /proc/net/dev',
+  'elif command -v netstat >/dev/null 2>&1; then',
+  "  netstat -ibn 2>/dev/null | awk 'NR==1 { for (i=1;i<=NF;i++) { if ($i==\"Ibytes\") ib=i; if ($i==\"Obytes\") ob=i } next } ib>0 && ob>0 && $0 ~ /<Link/ { print \"net\", $1, $ib, $ob }'",
   'fi',
   'echo "@@MEM@@"',
   'if [ -r /proc/meminfo ]; then',
@@ -109,6 +122,12 @@ export const WINDOWS_PROBE_SCRIPT = [
   '  $freeK=[int64]($ld.FreeSpace/1024)',
   '  Write-Output ($ld.DeviceID + \' \' + $totalK + \' \' + $usedK + \' \' + $freeK + \' \' + $pct + \'% \' + $ld.DeviceID + \'\\\')',
   '}',
+  "Write-Output '@@NET1@@'",
+  'Get-CimInstance Win32_PerfRawData_Tcpip_NetworkInterface | ForEach-Object {',
+  '  if ($null -ne $_.BytesReceivedPersec) {',
+  '    Write-Output (\'net \' + $_.Name + \' \' + [uint64]$_.BytesReceivedPersec + \' \' + [uint64]$_.BytesSentPersec)',
+  '  }',
+  '}',
 ].join('\n');
 
 export function encodePowerShell(script: string): string {
@@ -132,6 +151,14 @@ export interface ProbeResult {
   cpuPercent?: number;
   memPercent?: number;
   diskPercent?: number;
+  /** 计入接口的累计接收字节(当前快照)。 */
+  netRxBytes?: number;
+  /** 计入接口的累计发送字节(当前快照)。 */
+  netTxBytes?: number;
+  /** 约 1 秒双快照算出的接收 B/s。 */
+  netRxBps?: number;
+  /** 约 1 秒双快照算出的发送 B/s。 */
+  netTxBps?: number;
 }
 
 /** POSIX 探针拿不到 CPU 且拿不到内存时,才打 Windows CIM(Linux 零额外 RTT)。 */
@@ -221,6 +248,104 @@ function parsePhysmem(memSection: string): number | undefined {
   const psz = pageSize > 0 ? pageSize : 4096;
   const freeBytes = (freePages + inactPages) * psz;
   return pctClamp((1 - freeBytes / total) * 100);
+}
+
+/**
+ * 计入「像物理/主网」的接口。跳过 lo / docker / veth / tun / wg 等虚拟口。
+ * Proxmox vmbr* 计入。Windows 名含空格,先小写再匹配。
+ */
+export function isCountedNetIface(name: string): boolean {
+  const n = name.trim().replace(/:$/, '').toLowerCase();
+  if (n.length === 0) return false;
+  if (
+    n.includes('loopback')
+    || n.includes('isatap')
+    || n.includes('teredo')
+    || n.includes('wan miniport')
+    || n.includes('bluetooth')
+    || n.includes('pseudo')
+    || n.startsWith('docker')
+    || (n.startsWith('veth') && !n.startsWith('vethernet'))
+  ) {
+    return false;
+  }
+  return !/^(lo\d*|br-|tun\d*$|tap\d*$|wg\d*$|utun\d*|awdl\d*|llw\d*|sit\d*$|dummy\d*|virbr|cni|flannel|cali|kube-|fwbr|fwln|fwpr|nodelocaldns|vnet\d*|lxcbr|gif\d*|stf\d*|pflog|pfsync|zt)/.test(n);
+}
+
+interface NetCounters {
+  rx: number;
+  tx: number;
+}
+
+function addIface(acc: NetCounters, name: string, rx: number, tx: number): boolean {
+  if (!isCountedNetIface(name)) return false;
+  if (!Number.isFinite(rx) || !Number.isFinite(tx) || rx < 0 || tx < 0) return false;
+  acc.rx += rx;
+  acc.tx += tx;
+  return true;
+}
+
+/** /proc/net/dev 一行: "  eth0: bytes packets ... (rx 8 字段后是 tx bytes)"。 */
+function parseProcNetDevLine(line: string, acc: NetCounters): boolean {
+  const m = /^\s*([^:]+):\s*(\d+)\s+(?:\d+\s+){7}(\d+)/.exec(line);
+  if (m === null) return false;
+  return addIface(acc, m[1]!, Number(m[2]), Number(m[3]));
+}
+
+/**
+ * Darwin/BSD `netstat -ibn` Link 行。
+ * Darwin 列: Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Colls
+ * Address 可能是 MAC 或 `<Link#N>`。
+ */
+function parseNetstatLinkLine(line: string, acc: NetCounters): boolean {
+  if (!/<Link/i.test(line)) return false;
+  const tokens = line.trim().split(/\s+/);
+  if (tokens.length < 10) return false;
+  const name = tokens[0]!;
+  const ibytes = Number(tokens[tokens.length - 5]);
+  const obytes = Number(tokens[tokens.length - 2]);
+  return addIface(acc, name, ibytes, obytes);
+}
+
+/** Windows CIM / Darwin awk 行: `net <Name> <BytesReceived> <BytesSent>`。Name 可含空格。 */
+function parseWinNetLine(line: string, acc: NetCounters): boolean {
+  const m = /^net\s+(.+)\s+(\d+)\s+(\d+)\s*$/.exec(line);
+  if (m === null) return false;
+  return addIface(acc, m[1]!, Number(m[2]), Number(m[3]));
+}
+
+function parseNetSection(text: string): NetCounters | undefined {
+  const acc: NetCounters = { rx: 0, tx: 0 };
+  let seen = false;
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0 || trimmed.startsWith('Inter-') || trimmed.startsWith('face ')) continue;
+    if (parseProcNetDevLine(line, acc) || parseNetstatLinkLine(line, acc) || parseWinNetLine(line, acc)) {
+      seen = true;
+    }
+  }
+  if (!seen) return undefined;
+  return acc;
+}
+
+function rateBps(a: number, b: number, dtSec: number): number | undefined {
+  if (!(dtSec > 0) || b < a) return undefined;
+  return Math.round((b - a) / dtSec);
+}
+
+function applyNet(result: ProbeResult, text: string): void {
+  const n2 = parseNetSection(section(text, '@@NET2@@'));
+  const n1 = parseNetSection(section(text, '@@NET1@@'));
+  const latest = n2 ?? n1;
+  if (latest === undefined) return;
+  result.netRxBytes = latest.rx;
+  result.netTxBytes = latest.tx;
+  if (n1 !== undefined && n2 !== undefined) {
+    const rx = rateBps(n1.rx, n2.rx, 1);
+    const tx = rateBps(n1.tx, n2.tx, 1);
+    if (rx !== undefined) result.netRxBps = rx;
+    if (tx !== undefined) result.netTxBps = tx;
+  }
 }
 
 /** 解析探针输出。兼容 0.2.2 GNU top/free、/proc、Windows CIM、BSD sysctl。 */
@@ -319,5 +444,6 @@ export function parseProbeOutput(raw: string): ProbeResult {
     if (capNum !== null) result.diskPercent = pctClamp(Number(capNum[1]));
   }
 
+  applyNet(result, text);
   return result;
 }
