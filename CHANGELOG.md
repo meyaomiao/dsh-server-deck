@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- 卡片新增实时网速（↓接收 / ↑发送）与当月流量累计。Linux 双快照 `/proc/net/dev`，Darwin/BSD `netstat -ibn`，Windows CIM 网卡差分；lo / docker / veth / br- / tun / wg 等虚拟口跳过，Proxmox `vmbr*` 与 Windows `vEthernet` 计入。Closes #20.
+- 月流量落盘 `~/.dsh/server-deck-metrics/{hostId}/net-month.json`：主机重启续计，计数器回绕跳过该段增量，换月清零；删主机级联清理。
+
 ## 0.3.2
 
 - 对话工具 `server_deck_hosts` / `server_deck_exec`：对台账主机非交互 SSH 下发（不走卡片 xterm，不暴露浏览器 REST）。Closes #16.
