@@ -48,7 +48,27 @@ export interface HostStatus {
   cpuPercent?: number;
   memPercent?: number;
   diskPercent?: number;
+  /** 实时接收速率(字节/秒)。 */
+  netRxBps?: number;
+  /** 实时发送速率(字节/秒)。 */
+  netTxBps?: number;
+  /** 本机日历月累计接收字节。 */
+  monthRxBytes?: number;
+  /** 本机日历月累计发送字节。 */
+  monthTxBytes?: number;
+  /** 月键,本地时区 YYYY-MM。 */
+  monthKey?: string;
   probedAt?: string;
+}
+
+/** 主机侧当月流量累加器(落盘 net-month.json)。 */
+export interface NetMonthState {
+  ym: string;
+  rxBytes: number;
+  txBytes: number;
+  lastRx?: number;
+  lastTx?: number;
+  lastT?: number;
 }
 
 /** 趋势时间窗口。1h/24h 为滚动窗口;7d/30d 按本地自然日对齐。 */

@@ -7,12 +7,14 @@ import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'nod
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  accumulateNetMonth,
   BUCKET_MS,
   DEFAULT_SETTINGS,
+  normalizeNetMonth,
   normalizeSettings,
   rollup,
 } from '../metrics.ts';
-import type { MetricPoint, MetricSample, MetricsSettings } from '../types.ts';
+import type { MetricPoint, MetricSample, MetricsSettings, NetMonthState } from '../types.ts';
 
 export const DEFAULT_METRICS_DIR = join(homedir(), '.dsh', 'server-deck-metrics');
 
@@ -79,6 +81,8 @@ export class MetricStore {
   private latest = new Map<string, MetricSample>();
   /** 内存环形缓冲,供 3h 细粒度查询,避免每次读盘。 */
   private rawCache = new Map<string, MetricSample[]>();
+  /** 当月流量累加器。 */
+  private netMonth = new Map<string, NetMonthState>();
   /** 已删除主机:挡住在途 compact/append 把目录重建出来(竞态)。 */
   private removed = new Set<string>();
   /** 每主机写锁:append / compact / removeHost 串行,防压缩旧读数覆盖新行。 */
@@ -121,6 +125,11 @@ export class MetricStore {
       this.rawCache.set(id, kept);
       const last = kept[kept.length - 1] ?? (await this.newestFromLayers(id));
       if (last !== undefined) this.latest.set(id, last);
+      try {
+        const raw = JSON.parse(await readFile(join(this.rootDir, id, 'net-month.json'), 'utf8')) as unknown;
+        const state = normalizeNetMonth(raw);
+        if (state !== undefined) this.netMonth.set(id, state);
+      } catch { /* 无文件或坏文件 = 从零计 */ }
     }
   }
 
@@ -141,6 +150,26 @@ export class MetricStore {
 
   allLatest(): ReadonlyMap<string, MetricSample> {
     return this.latest;
+  }
+
+  getNetMonth(hostId: string): NetMonthState | undefined {
+    return this.netMonth.get(hostId);
+  }
+
+  /**
+   * 用本次计数器推进当月累计并落盘。
+   * 无计数器时只刷新月键(换月清零)。
+   */
+  async applyNetSample(hostId: string, now: number, rx?: number, tx?: number): Promise<NetMonthState> {
+    const next = accumulateNetMonth(this.netMonth.get(hostId), now, rx, tx);
+    this.netMonth.set(hostId, next);
+    if (this.removed.has(hostId)) return next;
+    await this.withLock(hostId, async () => {
+      if (this.removed.has(hostId)) return;
+      await mkdir(join(this.rootDir, hostId), { recursive: true });
+      await atomicWrite(join(this.rootDir, hostId, 'net-month.json'), `${JSON.stringify(next)}\n`);
+    });
+    return next;
   }
 
   async append(hostId: string, sample: MetricSample): Promise<void> {
@@ -228,6 +257,7 @@ export class MetricStore {
   async removeHost(hostId: string): Promise<void> {
     this.latest.delete(hostId);
     this.rawCache.delete(hostId);
+    this.netMonth.delete(hostId);
     this.removed.add(hostId);
     // 等在途写完成再删,避免目录被并发写复活
     await this.withLock(hostId, () =>

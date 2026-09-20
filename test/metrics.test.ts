@@ -6,9 +6,13 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  accumulateNetMonth,
   allowedBuckets,
   autoBucket,
   buildSeries,
+  formatBps,
+  formatBytes,
+  monthKey,
   resolveBucket,
   resolveRange,
   rollup,
@@ -167,4 +171,70 @@ test('sar 回填:小时位映射进窗口(本地/UTC 择优)', () => {
   assert.ok(samples[0].t >= now - 5 * 3600_000 && samples[0].t <= now);
   // 磁盘无法回填:样本不含 disk
   assert.equal(samples[0].disk, undefined);
+});
+
+test('monthKey 本地时区 YYYY-MM', () => {
+  assert.equal(monthKey(Date.parse('2026-09-15T15:00:00+08:00')), '2026-09');
+});
+
+test('formatBytes / formatBps 自适应单位', () => {
+  assert.equal(formatBytes(undefined), '—');
+  assert.equal(formatBytes(0), '0 B');
+  assert.equal(formatBytes(512), '512 B');
+  assert.equal(formatBytes(1024), '1 KB');
+  assert.equal(formatBytes(12.3 * 1024 * 1024), '12.3 MB');
+  assert.equal(formatBps(undefined), '—');
+  assert.equal(formatBps(2048), '2 KB/s');
+});
+
+test('accumulateNetMonth:首点无增量,正常差分,回绕跳过,跨月清零', () => {
+  const t0 = Date.parse('2026-09-15T12:00:00+08:00');
+  const t1 = t0 + 10_000;
+  const t2 = t1 + 10_000;
+  const wrap = t2 + 10_000;
+  const nextMonth = Date.parse('2026-10-01T00:00:01+08:00');
+
+  const a = accumulateNetMonth(undefined, t0, 1000, 2000);
+  assert.equal(a.ym, '2026-09');
+  assert.equal(a.rxBytes, 0);
+  assert.equal(a.txBytes, 0);
+  assert.equal(a.lastRx, 1000);
+
+  const b = accumulateNetMonth(a, t1, 1500, 2600);
+  assert.equal(b.rxBytes, 500);
+  assert.equal(b.txBytes, 600);
+
+  const c = accumulateNetMonth(b, t2, 1800, 3000);
+  assert.equal(c.rxBytes, 800);
+  assert.equal(c.txBytes, 1000);
+
+  const d = accumulateNetMonth(c, wrap, 10, 20);
+  assert.equal(d.rxBytes, 800);
+  assert.equal(d.txBytes, 1000);
+  assert.equal(d.lastRx, 10);
+
+  const e = accumulateNetMonth(d, nextMonth, 110, 120);
+  assert.equal(e.ym, '2026-10');
+  assert.equal(e.rxBytes, 100);
+  assert.equal(e.txBytes, 100);
+});
+
+test('MetricStore 月累计落盘与删主机级联', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sd-net-'));
+  const store = new MetricStore(dir);
+  await store.load();
+  const t0 = Date.parse('2026-09-15T12:00:00+08:00');
+  const first = await store.applyNetSample('srv_a', t0, 1000, 2000);
+  assert.equal(first.rxBytes, 0);
+  const second = await store.applyNetSample('srv_a', t0 + 10_000, 1500, 2600);
+  assert.equal(second.rxBytes, 500);
+  const disk = JSON.parse(await readFile(join(dir, 'srv_a', 'net-month.json'), 'utf8')) as { rxBytes: number };
+  assert.equal(disk.rxBytes, 500);
+
+  const again = new MetricStore(dir);
+  await again.load();
+  assert.equal(again.getNetMonth('srv_a')?.rxBytes, 500);
+
+  await again.removeHost('srv_a');
+  assert.equal(again.getNetMonth('srv_a'), undefined);
 });

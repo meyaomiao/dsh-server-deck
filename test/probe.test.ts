@@ -7,6 +7,7 @@ import {
   WINDOWS_PROBE_COMMAND,
   WINDOWS_PROBE_SCRIPT,
   PROBE_SCRIPT,
+  isCountedNetIface,
 } from '../src/server/probe.ts';
 
 const LINUX_OUT = [
@@ -178,4 +179,105 @@ test('Linux 有 CPU 或内存时视为有用,Windows 空输出则否', () => {
   assert.equal(hasUsefulMetrics(parseProbeOutput(PROC_OUT)), true);
   assert.equal(hasUsefulMetrics(parseProbeOutput('nothing')), false);
   assert.equal(hasUsefulMetrics({ osName: 'Windows', diskPercent: 15 }), false);
+});
+
+test('网卡计入规则:物理口算,虚拟口跳过', () => {
+  assert.equal(isCountedNetIface('eth0'), true);
+  assert.equal(isCountedNetIface('ens18'), true);
+  assert.equal(isCountedNetIface('enp3s0'), true);
+  assert.equal(isCountedNetIface('en0'), true);
+  assert.equal(isCountedNetIface('vmbr0'), true);
+  assert.equal(isCountedNetIface('Intel(R) Ethernet Connection'), true);
+  assert.equal(isCountedNetIface('lo'), false);
+  assert.equal(isCountedNetIface('lo0'), false);
+  assert.equal(isCountedNetIface('docker0'), false);
+  assert.equal(isCountedNetIface('docker_gwbridge'), false);
+  assert.equal(isCountedNetIface('veth1a2b'), false);
+  assert.equal(isCountedNetIface('vEthernet (WSL)'), true);
+  assert.equal(isCountedNetIface('br-abc123'), false);
+  assert.equal(isCountedNetIface('wg0'), false);
+  assert.equal(isCountedNetIface('utun2'), false);
+  assert.equal(isCountedNetIface('WAN Miniport (IP)'), false);
+  assert.equal(isCountedNetIface('Teredo Tunneling Pseudo-Interface'), false);
+});
+
+const LINUX_NET = [
+  PROC_OUT,
+  '@@NET1@@',
+  'Inter-|   Receive                                                |  Transmit',
+  ' face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed',
+  '    lo: 1000 1 0 0 0 0 0 0 1000 1 0 0 0 0 0 0',
+  '  eth0: 10000 10 0 0 0 0 0 0 20000 8 0 0 0 0 0 0',
+  'docker0: 999999 1 0 0 0 0 0 0 999999 1 0 0 0 0 0 0',
+  '  veth0: 888 1 0 0 0 0 0 0 888 1 0 0 0 0 0 0',
+  '@@NET2@@',
+  'Inter-|   Receive                                                |  Transmit',
+  ' face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed',
+  '    lo: 1500 2 0 0 0 0 0 0 1500 2 0 0 0 0 0 0',
+  '  eth0: 11024 12 0 0 0 0 0 0 22048 10 0 0 0 0 0 0',
+  'docker0: 999999 1 0 0 0 0 0 0 999999 1 0 0 0 0 0 0',
+  '  veth0: 888 1 0 0 0 0 0 0 888 1 0 0 0 0 0 0',
+].join('\n');
+
+test('解析 Linux /proc/net/dev 双快照:累计只计 eth0,1s 速率,虚拟口跳过', () => {
+  const r = parseProbeOutput(LINUX_NET);
+  assert.equal(r.osName, 'CachyOS');
+  assert.equal(r.diskPercent, 55);
+  assert.equal(r.netRxBytes, 11024);
+  assert.equal(r.netTxBytes, 22048);
+  assert.equal(r.netRxBps, 1024);
+  assert.equal(r.netTxBps, 2048);
+});
+
+test('旧样例无网卡段时网卡字段为空,其它指标仍在', () => {
+  const r = parseProbeOutput(LINUX_OUT);
+  assert.equal(r.cpuPercent, 17);
+  assert.equal(r.netRxBytes, undefined);
+  assert.equal(r.netTxBps, undefined);
+});
+
+const DARWIN_NET = [
+  DARWIN_OUT,
+  '@@NET1@@',
+  'net lo0 100 200',
+  'net en0 5000 8000',
+  'net utun2 9 9',
+  '@@NET2@@',
+  'net lo0 200 300',
+  'net en0 6024 9048',
+  'net utun2 9 9',
+].join('\n');
+
+test('解析 Darwin netstat awk 行:只计 en0', () => {
+  const r = parseProbeOutput(DARWIN_NET);
+  assert.equal(r.osName, 'macOS');
+  assert.equal(r.netRxBytes, 6024);
+  assert.equal(r.netTxBytes, 9048);
+  assert.equal(r.netRxBps, 1024);
+  assert.equal(r.netTxBps, 1048);
+});
+
+const WINDOWS_NET = [
+  WINDOWS_OUT,
+  '@@NET1@@',
+  'net Intel(R) Ethernet Connection 123456 234567',
+  'net WAN Miniport (IP) 999 999',
+  'net Teredo Tunneling Pseudo-Interface 1 1',
+].join('\n');
+
+test('解析 Windows CIM 网卡行:累计字节,无双快照则无 B/s', () => {
+  const r = parseProbeOutput(WINDOWS_NET);
+  assert.equal(r.osName, 'Microsoft Windows 11 家庭版');
+  assert.equal(r.cpuPercent, 28);
+  assert.equal(r.netRxBytes, 123456);
+  assert.equal(r.netTxBytes, 234567);
+  assert.equal(r.netRxBps, undefined);
+  assert.equal(r.netTxBps, undefined);
+});
+
+test('探针脚本含网卡双快照且 Windows CIM 含网卡计数', () => {
+  assert.equal(PROBE_SCRIPT.includes('@@NET1@@'), true);
+  assert.equal(PROBE_SCRIPT.includes('@@NET2@@'), true);
+  assert.equal(PROBE_SCRIPT.includes('/proc/net/dev'), true);
+  assert.equal(WINDOWS_PROBE_SCRIPT.includes('Win32_PerfRawData_Tcpip_NetworkInterface'), true);
 });

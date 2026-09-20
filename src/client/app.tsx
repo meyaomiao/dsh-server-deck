@@ -13,7 +13,7 @@ import type {
   MetricRangeKind,
   MetricsSettings,
 } from '../types.ts';
-import { BUCKET_MS } from '../metrics.ts';
+import { BUCKET_MS, formatBps, formatBytes } from '../metrics.ts';
 import * as api from './api.ts';
 import {
   loadRefreshSec,
@@ -499,6 +499,16 @@ function Meter(props: { label: string; value?: number }): React.ReactNode {
   );
 }
 
+function NetLine(props: { label: string; left: string; right: string; title: string }): React.ReactNode {
+  return (
+    <div className="sd-meter sd-net" title={props.title}>
+      <b>{props.label}</b>
+      <span className="sd-net-val">↓ {props.left}</span>
+      <span className="sd-net-val">↑ {props.right}</span>
+    </div>
+  );
+}
+
 function ServerCard(props: {
   host: HostEntry;
   status?: HostStatus;
@@ -532,6 +542,18 @@ function ServerCard(props: {
         <Meter label="CPU" value={status?.cpuPercent} />
         <Meter label="内存" value={status?.memPercent} />
         <Meter label="磁盘" value={status?.diskPercent} />
+        <NetLine
+          label="网速"
+          left={formatBps(status?.netRxBps)}
+          right={formatBps(status?.netTxBps)}
+          title="实时接收 / 发送"
+        />
+        <NetLine
+          label="本月"
+          left={formatBytes(status?.monthRxBytes)}
+          right={formatBytes(status?.monthTxBytes)}
+          title={status?.monthKey !== undefined ? `本月累计 ${status.monthKey}（接收 / 发送）` : '本月累计接收 / 发送'}
+        />
       </div>
       <div className="sd-card-foot">
         <button

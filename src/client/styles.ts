@@ -53,6 +53,8 @@ const APP_CSS = `
 .sd-bar i{display:block;height:100%;border-radius:3px;background:#3fb950}
 .sd-bar i.warn{background:#d29922}.sd-bar i.bad{background:#f85149}
 .sd-meter-val{width:42px;text-align:right;font-variant-numeric:tabular-nums}
+.sd-net{gap:8px}
+.sd-net-val{flex:1;min-width:0;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
 .sd-card-foot{display:flex;gap:6px;margin-top:4px}
 .sd-card-foot .sd-btn{padding:3px 8px;font-size:11px}
 /* ---- 趋势视图 ---- */
