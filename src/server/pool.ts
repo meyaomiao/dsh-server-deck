@@ -47,6 +47,60 @@ function messageOf(error: unknown): string {
 
 interface Pooled {
   conn: Client;
+  /** 跳板链路,从近到远;关闭目标连接时一并断开。 */
+  jumps: Client[];
+}
+
+/** 建立连接;跳板机递归打开,目标走 forwardOut 的 sock。 */
+async function connectClient(conn: Client, cfg: ConnectConfig): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    conn.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      try { conn.end(); } catch { /* 已断 */ }
+      reject(error);
+    });
+    conn.once('ready', () => {
+      settled = true;
+      resolve();
+    });
+    try {
+      conn.connect(cfg);
+    } catch (error) {
+      settled = true;
+      try { conn.end(); } catch { /* 已断 */ }
+      reject(error);
+    }
+  });
+}
+
+/** 在跳板机上向目标地址开一条转发通道。 */
+function forwardOut(conn: Client, host: string, port: number): Promise<ClientChannel> {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      done = true;
+      reject(new Error('跳板转发超时'));
+    }, READY_TIMEOUT_MS);
+    conn.forwardOut('127.0.0.1', 0, host, port, (error, stream) => {
+      if (done) {
+        try { stream?.close(); } catch { /* 已断 */ }
+        return;
+      }
+      done = true;
+      clearTimeout(timer);
+      if (error !== undefined && error !== null) reject(new Error(`跳板转发失败:${messageOf(error)}`));
+      else if (stream === undefined) reject(new Error('跳板转发失败:无返回通道'));
+      else resolve(stream);
+    });
+  });
+}
+
+function closeChain(pooled: Pooled): void {
+  for (const conn of [pooled.conn, ...pooled.jumps]) {
+    try { conn.end(); } catch { /* 已断 */ }
+  }
 }
 
 /** 每主机一条长连接;exec / shell 复用。 */
@@ -68,47 +122,63 @@ export class HostPool {
 
     const host = this.resolveHost(id);
     if (host === undefined) return Promise.reject(new Error('主机不存在'));
-    return new Promise((resolve, reject) => {
-      const conn = new Client();
-      let settled = false;
-      const fail = (error: unknown): void => {
-        if (settled) return;
-        settled = true;
-        this.pool.delete(id);
-        try { conn.end(); } catch { /* 已断 */ }
-        reject(new Error(`SSH 连接失败:${messageOf(error)}`));
-      };
-      conn.on('ready', () => {
-        if (settled) return;
-        settled = true;
-        conn.on('close', () => this.pool.delete(id));
-        conn.on('end', () => this.pool.delete(id));
-        conn.on('error', () => this.pool.delete(id));
-        this.pool.set(id, { conn });
-        resolve(conn);
-      });
-      conn.on('error', fail);
-      buildConnectConfig(host, this.resolveSecret(id))
-        .then((cfg) => conn.connect(cfg))
-        .catch(fail);
-    });
+    return this.open(host, new Set()).then(
+      (opened) => {
+        const cleanup = (): void => {
+          this.pool.delete(id);
+          for (const jump of opened.jumps) {
+            try { jump.end(); } catch { /* 已断 */ }
+          }
+        };
+        opened.conn.on('close', cleanup);
+        opened.conn.on('end', cleanup);
+        opened.conn.on('error', cleanup);
+        this.pool.set(id, opened);
+        return opened.conn;
+      },
+      (error) => { throw new Error(`SSH 连接失败:${messageOf(error)}`); },
+    );
+  }
+
+  private async open(host: HostEntry, seen: Set<string>): Promise<Pooled> {
+    if (seen.has(host.id)) throw new Error('跳板机存在循环引用');
+    seen.add(host.id);
+    const jump = host.jumpHostId !== undefined ? this.resolveHost(host.jumpHostId) : undefined;
+    if (host.jumpHostId !== undefined && jump === undefined) {
+      throw new Error(`跳板机不存在:${host.jumpHostId}`);
+    }
+    const cfg = await buildConnectConfig(host, this.resolveSecret(host.id));
+    let parent: Pooled | undefined;
+    if (jump !== undefined) {
+      try {
+        parent = await this.open(jump, seen);
+        cfg.sock = await forwardOut(parent.conn, host.host, host.port);
+      } catch (error) {
+        if (parent !== undefined) closeChain(parent);
+        throw new Error(`经跳板机 ${jump.name} 连接失败:${messageOf(error)}`);
+      }
+    }
+    const conn = new Client();
+    try {
+      await connectClient(conn, cfg);
+    } catch (error) {
+      if (parent !== undefined) closeChain(parent);
+      throw error;
+    }
+    return { conn, jumps: parent === undefined ? [] : [parent.conn, ...parent.jumps] };
   }
 
   /** 独立短连接测试(不占用连接池),返回握手延迟。 */
-  test(host: HostEntry): Promise<{ ok: true; latencyMs: number } | { ok: false; error: string }> {
+  async test(host: HostEntry): Promise<{ ok: true; latencyMs: number } | { ok: false; error: string }> {
     const started = Date.now();
-    return new Promise((resolve) => {
-      const conn = new Client();
-      const finish = (result: { ok: true; latencyMs: number } | { ok: false; error: string }): void => {
-        try { conn.end(); } catch { /* 已断 */ }
-        resolve(result);
-      };
-      conn.on('ready', () => finish({ ok: true, latencyMs: Date.now() - started }));
-      conn.on('error', (error) => finish({ ok: false, error: messageOf(error) }));
-      buildConnectConfig(host, this.resolveSecret(host.id))
-        .then((cfg) => conn.connect(cfg))
-        .catch((error) => finish({ ok: false, error: messageOf(error) }));
-    });
+    try {
+      const opened = await this.open(host, new Set());
+      const latencyMs = Date.now() - started;
+      closeChain(opened);
+      return { ok: true, latencyMs };
+    } catch (error) {
+      return { ok: false, error: messageOf(error) };
+    }
   }
 
   /** 在主机上执行单条命令(走池内长连接)。登录壳会解释这条命令,探针不要走这里。 */
@@ -186,7 +256,7 @@ export class HostPool {
     const pooled = this.pool.get(id);
     if (pooled !== undefined) {
       this.pool.delete(id);
-      try { pooled.conn.end(); } catch { /* 已断 */ }
+      closeChain(pooled);
     }
   }
 
