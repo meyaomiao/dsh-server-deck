@@ -458,6 +458,7 @@ export function ServerDeckApp(props: { visible: boolean }): React.ReactNode {
         <div className="sd-body">
           <HostForm
             initial={view.host}
+            hosts={hosts}
             onCancel={() => setView({ kind: 'grid' })}
             onSaved={(host) => { setBanner({ kind: 'ok', text: `✓ 已保存 ${host.name}` }); setView({ kind: 'grid' }); void refreshHosts(); }}
           />
@@ -662,6 +663,7 @@ function TrendCard(props: {
 
 function HostForm(props: {
   initial?: HostEntry;
+  hosts: readonly HostEntry[];
   onCancel: () => void;
   onSaved: (host: HostEntry) => void;
 }): React.ReactNode {
@@ -672,6 +674,10 @@ function HostForm(props: {
   const [username, setUsername] = useState(editing?.username ?? '');
   const [auth, setAuth] = useState<HostEntry['auth']>(editing?.auth ?? 'key');
   const [keyPath, setKeyPath] = useState(editing?.keyPath ?? '~/.ssh/id_ed25519');
+  const [jumpHostId, setJumpHostId] = useState(() => {
+    const id = editing?.jumpHostId;
+    return id !== undefined && props.hosts.some((h) => h.id === id) ? id : '';
+  });
   const [tags, setTags] = useState((editing?.tags ?? []).join(','));
   const [password, setPassword] = useState('');
   const [passphrase, setPassphrase] = useState('');
@@ -701,6 +707,7 @@ function HostForm(props: {
       username: username.trim(),
       auth,
       keyPath: auth === 'key' ? keyPath.trim() : undefined,
+      jumpHostId: jumpHostId || null,
       tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
       ...(password.length > 0 ? { password } : {}),
       ...(passphrase.length > 0 ? { passphrase } : {}),
@@ -716,7 +723,7 @@ function HostForm(props: {
     } finally {
       setSaving(false);
     }
-  }, [name, host, port, username, auth, keyPath, tags, password, passphrase, editing, props]);
+  }, [name, host, port, username, auth, keyPath, jumpHostId, tags, password, passphrase, editing, props]);
 
   return (
     <div className="sd-form">
@@ -742,6 +749,15 @@ function HostForm(props: {
       {auth === 'key' ? (
         <label>私钥口令 {secretHint}<input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} autoComplete="off" /></label>
       ) : null}
+      <label>跳板机(可选)
+        <select value={jumpHostId} onChange={(e) => setJumpHostId(e.target.value)}>
+          <option value="">直连</option>
+          {props.hosts.filter((h) => h.id !== editing?.id).map((h) => (
+            <option key={h.id} value={h.id}>{h.name}({h.host})</option>
+          ))}
+        </select>
+      </label>
+      <div className="sd-line">连接时先登录跳板机,再转发到目标;跳板机使用自己的认证。</div>
       <label>标签(逗号分隔)<input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="生产, 华东" /></label>
       {error !== null ? <div className="sd-msg err">{error}</div> : null}
       <div className="sd-row">

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { HostEntry } from '../src/types.ts';
 
 // store.ts 的 DSH_DIR 在模块加载期固定到 ~/.dsh;单测通过 chdir 不影响它,
 // 因此这里只测 normalizeInput 的校验逻辑(经 create/update 路径间接覆盖会污染
@@ -30,4 +31,38 @@ test('normalizeInput 拒绝非法字段(store.create 前置校验)', async () =>
   void join;
   void mkdtemp;
   void tmpdir;
+});
+
+test('normalizeInput 规范化 jumpHostId', async () => {
+  const { normalizeInput } = await import('../src/server/store.ts');
+  assert.equal(normalizeInput({ jumpHostId: '  srv_1  ' }).fields.jumpHostId, 'srv_1');
+  assert.equal(normalizeInput({ jumpHostId: null }).fields.jumpHostId, undefined);
+  assert.equal(normalizeInput({ jumpHostId: '   ' }).fields.jumpHostId, undefined);
+  assert.throws(() => normalizeInput({ jumpHostId: 1 }), /jumpHostId/);
+});
+
+function host(id: string, jumpHostId?: string): HostEntry {
+  return {
+    id,
+    name: id,
+    host: '127.0.0.1',
+    port: 22,
+    username: 'u',
+    auth: 'agent',
+    jumpHostId,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
+}
+
+test('assertJumpTarget 接受链式跳板并拒绝自指 / 缺失 / 环', async () => {
+  const { assertJumpTarget } = await import('../src/server/store.ts');
+  const a = host('a');
+  const b = host('b', 'a');
+  const c = host('c', 'b');
+  assert.doesNotThrow(() => assertJumpTarget('d', 'c', [a, b, c]));
+  assert.doesNotThrow(() => assertJumpTarget('d', undefined, [a, b, c]));
+  assert.throws(() => assertJumpTarget('a', 'a', [a]), /自身/);
+  assert.throws(() => assertJumpTarget('a', 'missing', [a]), /不存在/);
+  assert.throws(() => assertJumpTarget('a', 'b', [host('a', 'c'), host('b', 'a'), host('c', 'b')]), /循环/);
+  assert.throws(() => assertJumpTarget('a', 'b', [a, host('b', 'missing')]), /链路不完整/);
 });

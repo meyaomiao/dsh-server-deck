@@ -33,7 +33,7 @@ import type { HostStore } from './store.ts';
 import type { MetricStore } from './metric-store.ts';
 import type { MetricRecorder } from './recorder.ts';
 import type { SarBackfill } from './backfill.ts';
-import { parseSshConfig } from './sshconfig.ts';
+import { parseSshConfig, type SshConfigCandidate } from './sshconfig.ts';
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -199,9 +199,15 @@ export function createApiRouter(
         const rawCfg = await readFile(join(homedir(), '.ssh', 'config'), 'utf8');
         const { candidates } = parseSshConfig(rawCfg);
         const existing = new Set(store.list().map((h) => `${h.username}@${h.host}:${h.port}`));
+        const byEndpoint = new Map(store.list().map((h) => [`${h.username}@${h.host}:${h.port}`, h]));
+        const aliasToId = new Map<string, string>();
+        const created: Array<{ candidate: SshConfigCandidate; entry: HostEntry }> = [];
         const imported: HostEntry[] = [];
         let skipped = 0;
         let gitAliases = 0;
+        const rememberAliases = (c: SshConfigCandidate, id: string): void => {
+          for (const alias of c.aliases) aliasToId.set(alias, id);
+        };
         for (const c of candidates) {
           const hostName = c.hostname ?? c.alias;
           const username = c.user ?? '';
@@ -210,18 +216,39 @@ export function createApiRouter(
             gitAliases += 1;
             continue;
           }
-          if (username.length === 0 || existing.has(`${username}@${hostName}:${port}`)) {
+          const endpoint = `${username}@${hostName}:${port}`;
+          if (username.length === 0 || existing.has(endpoint)) {
             skipped += 1;
+            const found = byEndpoint.get(endpoint);
+            if (found !== undefined) rememberAliases(c, found.id);
             continue;
           }
           if (body.dryRun === true) { continue; }
           const displayName = pickDisplayName(c);
-          imported.push(await store.create({
+          const entry = await store.create({
             name: displayName, host: hostName, port, username,
             auth: 'key', keyPath: c.identityFile ?? '~/.ssh/id_ed25519',
-            tags: ['ssh-config'], notes: c.proxyJump !== undefined ? `ProxyJump ${c.proxyJump}` : undefined,
-          }));
-          existing.add(`${username}@${hostName}:${port}`);
+            tags: ['ssh-config'],
+          });
+          imported.push(entry);
+          created.push({ candidate: c, entry });
+          rememberAliases(c, entry.id);
+          byEndpoint.set(endpoint, entry);
+          existing.add(endpoint);
+        }
+        for (const { candidate, entry } of created) {
+          const alias = candidate.proxyJump;
+          if (alias === undefined || alias === 'none') continue;
+          const jumpId = aliasToId.get(alias)
+            ?? store.list().find((h) => h.id !== entry.id && (h.name === alias || h.host === alias))?.id;
+          if (jumpId === undefined || jumpId === entry.id) continue;
+          try {
+            const updated = await store.update(entry.id, { jumpHostId: jumpId });
+            const idx = imported.findIndex((h) => h.id === entry.id);
+            if (idx >= 0) imported[idx] = updated;
+          } catch {
+            // 跳板链有环或引用缺失时保留直连,不阻断其余主机导入
+          }
         }
         sendJson(res, 200, { ok: true, found: candidates.length, importedCount: imported.length, skipped, gitAliases, imported });
         return;

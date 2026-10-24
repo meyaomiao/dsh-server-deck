@@ -76,12 +76,13 @@ xterm.js 全功能终端:5000 行回滚、256 色、窗口尺寸实时同步、�
 
 ### ⤓ 一键导入 `~/.ssh/config`
 解析标准 ssh config(Host / HostName / User / Port / IdentityFile / ProxyJump),自动:
+- `ProxyJump` 导入后指向台账里的对应主机,连接时经它转发;
 - 跳过通配条目(`Host *`)与已存在主机;
 - **跳过 Git 托管平台密钥别名**(如 `Host github.com-xxx` / `User git`——它们不是可管理的服务器);
 - 多别名行(`Host 1.2.3.4 prod-gw`)优先取语义化别名做展示名。
 
 ### ＋ 手动添加主机
-密码 / 私钥文件(+口令)/ SSH Agent 三种认证;连接测试按钮即时反馈延迟。
+密码 / 私钥文件(+口令)/ SSH Agent 三种认证;可选台账里的另一台主机作跳板机(跳板机使用自己的认证);连接测试按钮即时反馈延迟。
 
 <p align="center">
   <img src="docs/screenshots/add-host.png" width="420" alt="添加服务器表单">
