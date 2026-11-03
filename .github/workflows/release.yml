@@ -27,8 +27,14 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
-      - name: Publish to npm
-        run: npm publish --access public
+      - name: Publish or verify the exact npm artifact
+        shell: bash
+        run: |
+          if [ -n "$NODE_AUTH_TOKEN" ]; then
+            npm publish --access public
+          else
+            node scripts/verify-release.mjs
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create GitHub Release
