@@ -17,6 +17,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { HostPool } from './server/pool.ts';
 import { createApiRouter } from './server/router.ts';
 import { createPtyRoute } from './server/pty.ts';
+import type { RequestConnection } from './server/auth.ts';
 import { HostStore } from './server/store.ts';
 import { MetricStore } from './server/metric-store.ts';
 import { MetricRecorder } from './server/recorder.ts';
@@ -26,11 +27,14 @@ import { registerExecTools } from './server/exec-tools.ts';
 /** Cordis 插件名,loader 诊断使用。 */
 const name = 'server-deck';
 
-/** 本插件依赖的上下文服务:webServer 注册 HTTP 与 upgrade 路由;tools / systemPrompt 注册对话下发。 */
-const inject = ['webServer', 'tools', 'systemPrompt'];
+/** webServer 注册路由;connection 复用宿主准入;tools / systemPrompt 注册对话下发。 */
+const inject = ['webServer', 'connection', 'tools', 'systemPrompt'];
 
 /** Cordis 插件体。 */
 export function apply(ctx: Context): void {
+  let connection: RequestConnection | undefined;
+  // Old hosts may lack the service/API; routes still fail closed in that case.
+  try { connection = (ctx as unknown as { connection?: RequestConnection }).connection; } catch { /* unavailable */ }
   const store = new HostStore();
   const metrics = new MetricStore();
   const pool = new HostPool(
@@ -39,6 +43,7 @@ export function apply(ctx: Context): void {
   );
   const recorder = new MetricRecorder(store, pool, metrics);
   const backfill = new SarBackfill(pool, metrics);
+  let disposed = false;
 
   void (async () => {
     try {
@@ -51,10 +56,11 @@ export function apply(ctx: Context): void {
     } catch (error) {
       console.warn('[server-deck] 指标库加载失败(将以空序列运行):', error);
     }
-    recorder.start();
+    if (!disposed) recorder.start();
   })();
 
   ctx.effect(() => () => {
+    disposed = true;
     recorder.stop();
     pool.closeAll();
   }, 'server-deck: dispose connections');
@@ -64,16 +70,19 @@ export function apply(ctx: Context): void {
       ctx.webServer.register({
         kind: 'prefix',
         path: '/server-deck/api',
-        handler: createApiRouter(store, pool, metrics, recorder, backfill),
+        handler: createApiRouter(store, pool, metrics, recorder, backfill, connection),
       }),
     'server-deck: rest api',
   );
 
-  ctx.effect(
-    () =>
-      ctx.webServer.registerUpgrade(createPtyRoute(pool, (id) => store.get(id) !== undefined)),
-    'server-deck: pty upgrade route',
-  );
+  ctx.effect(() => {
+    const route = createPtyRoute(pool, (id) => store.get(id) !== undefined, connection);
+    const unregister = ctx.webServer.registerUpgrade(route);
+    return () => {
+      unregister();
+      route.dispose();
+    };
+  }, 'server-deck: pty upgrade route');
 
   registerExecTools(ctx as Parameters<typeof registerExecTools>[0], store, pool, recorder);
 }

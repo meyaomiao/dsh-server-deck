@@ -10,7 +10,7 @@
  *   GET    /metrics/settings      采集设置
  *   PATCH  /metrics/settings      改采集周期 / 总开关 / 每机暂停
  *   POST   /import-ssh-config     只读检测预览 / 确认选择后导入
- * 访问面:仅回环放行(与 side-panel 同款防护)。
+ * 访问面:仅回环,并通过宿主 Connection 的来源与身份校验。
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -31,16 +31,12 @@ import type { MetricStore } from './metric-store.ts';
 import type { MetricRecorder } from './recorder.ts';
 import type { SarBackfill } from './backfill.ts';
 import { createSshImporter } from './importer.ts';
+import { requestRejection, type RequestConnection } from './auth.ts';
+export { isLoopback } from './auth.ts';
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
-}
-
-/** 仅回环放行(DNS rebinding / 局域网直连防护)。 */
-export function isLoopback(req: IncomingMessage): boolean {
-  const remote = req.socket.remoteAddress ?? '';
-  return remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -81,11 +77,13 @@ export function createApiRouter(
   metrics: MetricStore,
   recorder: MetricRecorder,
   backfill?: SarBackfill,
+  connection?: RequestConnection,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const importer = createSshImporter(store, undefined, (id) => ssh.close(id));
   return async (req, res) => {
-    if (!isLoopback(req)) {
-      sendJson(res, 403, { error: '仅允许本机访问' });
+    const rejection = requestRejection(req, connection);
+    if (rejection !== undefined) {
+      sendJson(res, rejection.status, { error: rejection.error });
       return;
     }
     const url = new URL(req.url ?? '/', 'http://loopback');

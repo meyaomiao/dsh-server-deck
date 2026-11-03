@@ -100,14 +100,16 @@ const APP_CSS = `
 .sd-msg{font-size:12px;border-radius:6px;padding:6px 9px}
 .sd-msg.err{background:rgba(248,81,73,.12);color:#ff7b72}
 .sd-msg.ok{background:rgba(63,185,80,.12);color:#56d364}
-.sd-term-wrap{position:absolute;inset:0;display:flex;flex-direction:column;
-  background:var(--dsw-alias-bg-base,#0d1117)}
+.sd-term-wrap{display:flex;flex:1;min-height:0;min-width:0;flex-direction:column;
+  overflow:hidden;container-type:inline-size;background:var(--dsw-alias-bg-base,#0d1117)}
 .sd-term-head{display:flex;align-items:center;gap:8px;padding:8px 12px;flex:none;
+  min-width:0;overflow:hidden;
   border-bottom:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.2))}
 .sd-term-head .sd-title{font-size:12px;font-weight:600;flex:1;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sd-term-head .sd-line{flex:none;max-width:42%}
-.sd-term-body{flex:1;min-height:0;position:relative}
+.sd-term-head .sd-line{flex:0 1 auto;min-width:0;max-width:42%;text-align:right}
+@container (max-width:540px){.sd-term-head .sd-line{display:none}}
+.sd-term-body{flex:1;min-height:0;min-width:0;position:relative;overflow:hidden}
 .sd-term-body .xterm,.sd-term-body .xterm .xterm-viewport,
 .sd-term-body .xterm .xterm-screen{background:transparent!important}
 .sd-term-body .xterm{padding:6px 8px;height:100%}

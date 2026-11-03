@@ -291,10 +291,10 @@ export function ServerDeckApp(props: { visible: boolean }): React.ReactNode {
 
   return (
     <div className="sd-app">
-      <div className="sd-toolbar">
+      {view.kind !== 'terminal' ? <div className="sd-toolbar">
         {view.kind === 'trend' ? <button className="sd-btn" onClick={() => setView({ kind: 'grid' })}>← 卡片</button> : null}
         {view.kind === 'grid' ? <button className="sd-btn" onClick={() => setView({ kind: 'trend' })}>📈 趋势</button> : null}
-        {view.kind === 'form' || view.kind === 'terminal'
+        {view.kind === 'form'
           ? <button className="sd-btn" onClick={() => setView({ kind: 'grid' })}>← 卡片</button>
           : null}
         <h2>{title}</h2>
@@ -326,7 +326,7 @@ export function ServerDeckApp(props: { visible: boolean }): React.ReactNode {
             {trendLoading ? <><i className="sd-spin" /> 加载中</> : '⟳ 刷新'}
           </button>
         ) : null}
-      </div>
+      </div> : null}
 
       {view.kind === 'trend' ? (
         <div className="sd-trend-bar">
