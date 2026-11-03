@@ -9,15 +9,12 @@
  *   GET    /metrics               趋势序列 hostId&range&bucket&from&to
  *   GET    /metrics/settings      采集设置
  *   PATCH  /metrics/settings      改采集周期 / 总开关 / 每机暂停
- *   POST   /import-ssh-config     解析 ~/.ssh/config 并导入新主机
+ *   POST   /import-ssh-config     只读检测预览 / 确认选择后导入
  * 访问面:仅回环放行(与 side-panel 同款防护)。
  */
 
-import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { HostEntry, HostInput, MetricsSettings } from '../types.ts';
+import type { HostInput, ImportConfirmation, MetricsSettings } from '../types.ts';
 import {
   allowedBuckets,
   assertHostId,
@@ -33,7 +30,7 @@ import type { HostStore } from './store.ts';
 import type { MetricStore } from './metric-store.ts';
 import type { MetricRecorder } from './recorder.ts';
 import type { SarBackfill } from './backfill.ts';
-import { parseSshConfig, type SshConfigCandidate } from './sshconfig.ts';
+import { createSshImporter } from './importer.ts';
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -71,28 +68,6 @@ async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
   }
 }
 
-interface ImportBody { dryRun?: boolean }
-
-/** Git 托管平台的 SSH 端点:密钥别名指向它们,不是可管理服务器。 */
-const GIT_HOSTING_HOSTS = new Set([
-  'github.com', 'gitlab.com', 'bitbucket.org', 'gitee.com', 'e.coding.net',
-  'codeberg.org', 'ssh.dev.azure.com', 'git.sr.ht', 'chromium.googlesource.com',
-]);
-
-function isGitHostingHost(hostname: string, username: string): boolean {
-  if (GIT_HOSTING_HOSTS.has(hostname.toLowerCase())) return true;
-  if (/^(github|gitlab|gitee)\./i.test(hostname)) return true;
-  return username === 'git';
-}
-
-const IPV4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
-
-/** 多别名行优先取非 IP 的语义化别名做展示名(如 moiraism-com-prod)。 */
-function pickDisplayName(c: { alias: string; aliases?: string[] }): string {
-  const names = c.aliases ?? [c.alias];
-  return names.find((n) => !IPV4_RE.test(n)) ?? c.alias;
-}
-
 function parseMs(raw: string | null): number | undefined {
   if (raw === null || raw.length === 0) return undefined;
   const n = Number(raw);
@@ -107,6 +82,7 @@ export function createApiRouter(
   recorder: MetricRecorder,
   backfill?: SarBackfill,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+  const importer = createSshImporter(store, undefined, (id) => ssh.close(id));
   return async (req, res) => {
     if (!isLoopback(req)) {
       sendJson(res, 403, { error: '仅允许本机访问' });
@@ -195,62 +171,16 @@ export function createApiRouter(
         return;
       }
       if (path === '/import-ssh-config' && method === 'POST') {
-        const body = await readJsonBody<ImportBody>(req);
-        const rawCfg = await readFile(join(homedir(), '.ssh', 'config'), 'utf8');
-        const { candidates } = parseSshConfig(rawCfg);
-        const existing = new Set(store.list().map((h) => `${h.username}@${h.host}:${h.port}`));
-        const byEndpoint = new Map(store.list().map((h) => [`${h.username}@${h.host}:${h.port}`, h]));
-        const aliasToId = new Map<string, string>();
-        const created: Array<{ candidate: SshConfigCandidate; entry: HostEntry }> = [];
-        const imported: HostEntry[] = [];
-        let skipped = 0;
-        let gitAliases = 0;
-        const rememberAliases = (c: SshConfigCandidate, id: string): void => {
-          for (const alias of c.aliases) aliasToId.set(alias, id);
-        };
-        for (const c of candidates) {
-          const hostName = c.hostname ?? c.alias;
-          const username = c.user ?? '';
-          const port = c.port ?? 22;
-          if (isGitHostingHost(hostName, username)) {
-            gitAliases += 1;
-            continue;
-          }
-          const endpoint = `${username}@${hostName}:${port}`;
-          if (username.length === 0 || existing.has(endpoint)) {
-            skipped += 1;
-            const found = byEndpoint.get(endpoint);
-            if (found !== undefined) rememberAliases(c, found.id);
-            continue;
-          }
-          if (body.dryRun === true) { continue; }
-          const displayName = pickDisplayName(c);
-          const entry = await store.create({
-            name: displayName, host: hostName, port, username,
-            auth: 'key', keyPath: c.identityFile ?? '~/.ssh/id_ed25519',
-            tags: ['ssh-config'],
-          });
-          imported.push(entry);
-          created.push({ candidate: c, entry });
-          rememberAliases(c, entry.id);
-          byEndpoint.set(endpoint, entry);
-          existing.add(endpoint);
+        const body = await readJsonBody<Partial<ImportConfirmation> & { action?: unknown; dryRun?: unknown }>(req);
+        if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+          sendJson(res, 400, { error: '导入请求无效' });
+        } else if (body.action === undefined || body.action === 'preview') {
+          sendJson(res, 200, { ok: true, ...(await importer.preview()) });
+        } else if (body.action === 'confirm') {
+          sendJson(res, 200, { ok: true, ...(await importer.confirm(body as ImportConfirmation)) });
+        } else {
+          sendJson(res, 400, { error: '导入 action 必须是 preview 或 confirm' });
         }
-        for (const { candidate, entry } of created) {
-          const alias = candidate.proxyJump;
-          if (alias === undefined || alias === 'none') continue;
-          const jumpId = aliasToId.get(alias)
-            ?? store.list().find((h) => h.id !== entry.id && (h.name === alias || h.host === alias))?.id;
-          if (jumpId === undefined || jumpId === entry.id) continue;
-          try {
-            const updated = await store.update(entry.id, { jumpHostId: jumpId });
-            const idx = imported.findIndex((h) => h.id === entry.id);
-            if (idx >= 0) imported[idx] = updated;
-          } catch {
-            // 跳板链有环或引用缺失时保留直连,不阻断其余主机导入
-          }
-        }
-        sendJson(res, 200, { ok: true, found: candidates.length, importedCount: imported.length, skipped, gitAliases, imported });
         return;
       }
 

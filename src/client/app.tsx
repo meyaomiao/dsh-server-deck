@@ -25,10 +25,12 @@ import {
   type TrendRangePref,
 } from './config.ts';
 import { Sparkline, valueClass } from './sparkline.tsx';
+import { ImportView } from './import-view.tsx';
 import { TerminalPane } from './terminal.tsx';
 
 type View =
   | { kind: 'grid' }
+  | { kind: 'import' }
   | { kind: 'trend' }
   | { kind: 'form'; host?: HostEntry }
   | { kind: 'terminal'; host: HostEntry };
@@ -224,23 +226,6 @@ export function ServerDeckApp(props: { visible: boolean }): React.ReactNode {
     }
   }, [refreshHosts, refreshStatuses, view.kind, loadSeries]);
 
-  const runImport = useCallback(async (): Promise<void> => {
-    setProbing(true);
-    setBanner(null);
-    try {
-      const r = await api.importSshConfig(false);
-      await refreshHosts();
-      setBanner({
-        kind: 'ok',
-        text: `ssh config 解析完成:发现 ${String(r.found)} 条,新导入 ${String(r.importedCount)} 台,跳过 ${String(r.skipped)} 条`,
-      });
-    } catch (error) {
-      setBanner({ kind: 'err', text: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setProbing(false);
-    }
-  }, [refreshHosts]);
-
   // 工具栏「刷新」:立即探测一轮并取最新快照
   const manualProbe = useCallback(async (): Promise<void> => {
     setProbing(true);
@@ -275,7 +260,9 @@ export function ServerDeckApp(props: { visible: boolean }): React.ReactNode {
   // ---------- 渲染 ----------
   const title = view.kind === 'grid'
     ? '服务器'
-    : view.kind === 'trend'
+    : view.kind === 'import'
+      ? '导入 SSH 配置'
+      : view.kind === 'trend'
       ? '趋势'
       : view.kind === 'form'
         ? (view.host !== undefined ? '编辑主机' : '添加服务器')
@@ -328,7 +315,7 @@ export function ServerDeckApp(props: { visible: boolean }): React.ReactNode {
             <button className="sd-btn" disabled={probing} onClick={() => void manualProbe()}>
               {probing ? <><i className="sd-spin" /> 探测中</> : '⟳ 刷新'}
             </button>
-            <button className="sd-btn" disabled={probing} onClick={() => void runImport()} title="解析 ~/.ssh/config 并导入新主机">
+            <button className="sd-btn" disabled={probing} onClick={() => { setBanner(null); setView({ kind: 'import' }); }} title="只读检测 ~/.ssh/config，预览并确认后导入">
               ⤓ 导入
             </button>
             <button className="sd-btn primary" onClick={() => setView({ kind: 'form' })}>＋ 添加</button>
@@ -404,7 +391,7 @@ export function ServerDeckApp(props: { visible: boolean }): React.ReactNode {
         <div className="sd-body">
           {hosts.length === 0 ? (
             <div className="sd-empty">
-              还没有服务器。<br />点右上角「＋ 添加」手工录入,或用「⤓ 导入 ssh config」一键导入。
+              还没有服务器。<br />点右上角「＋ 添加」手工录入,或用「⤓ 导入」检测 SSH 配置后勾选确认。
             </div>
           ) : (
             <div className="sd-grid">
@@ -452,6 +439,10 @@ export function ServerDeckApp(props: { visible: boolean }): React.ReactNode {
             </div>
           )}
         </div>
+      ) : null}
+
+      {view.kind === 'import' ? (
+        <ImportView onCancel={() => setView({ kind: 'grid' })} onImported={() => { void refreshHosts(); }} />
       ) : null}
 
       {view.kind === 'form' ? (

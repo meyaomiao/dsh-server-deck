@@ -38,6 +38,41 @@ export interface HostInput {
   passphrase?: unknown;
 }
 
+/** SSH 配置导入预览只包含公开的连接元数据，不传秘密或私钥内容。 */
+export interface ImportCandidate {
+  id: string;
+  name: string;
+  aliases: string[];
+  host: string;
+  username: string;
+  port: number;
+  proxyJump?: string;
+  action: 'create' | 'update' | 'skip' | 'invalid';
+  reason: string;
+  /** 必需跳板的候选 ID；确认时服务端再次计算闭包。 */
+  dependencies: string[];
+}
+
+export interface ImportPreview {
+  fingerprint: string;
+  candidates: ImportCandidate[];
+  warnings: string[];
+}
+
+export interface ImportConfirmation {
+  fingerprint: string;
+  selectedIds: string[];
+}
+
+export interface ImportResult {
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  includedDependencies: number;
+  /** 失败前已完成的操作也明确显示，避免把部分结果误报为成功。 */
+  error?: string;
+}
+
 /** 一台服务器的实时状态快照。 */
 export interface HostStatus {
   id: string;
