@@ -33,8 +33,8 @@ export function normalizeInput(raw: HostInput): {
   const secret: { password?: string; passphrase?: string } = {};
 
   if (raw.name !== undefined) {
-    if (!isStr(raw.name)) throw new Error('name 无效');
-    fields.name = raw.name.trim();
+    if (typeof raw.name !== 'string') throw new Error('name 无效');
+    fields.name = raw.name.trim() || undefined;
   }
   if (raw.host !== undefined) {
     if (!isStr(raw.host)) throw new Error('host 无效');
