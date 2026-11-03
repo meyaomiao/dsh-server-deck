@@ -49,8 +49,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "TZ=Asia/Shanghai node --import tsx --test \"test/*.test.ts\"",
-    "test:ui": "node --test \"test/*.browser.mjs\""
+    "test": "node scripts/test.mjs",
+    "test:ui": "node scripts/test.mjs browser"
   },
   "dependencies": {
     "ssh2": "^1.16.0",
