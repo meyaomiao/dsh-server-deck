@@ -109,7 +109,7 @@ const APP_CSS = `
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sd-term-head .sd-line{flex:0 1 auto;min-width:0;max-width:42%;text-align:right}
 @container (max-width:540px){.sd-term-head .sd-line{display:none}}
-.sd-term-body{flex:1;min-height:0;min-width:0;position:relative;overflow:hidden}
+.sd-term-body{flex:1;min-height:0;min-width:0;position:relative;overflow:hidden;background:#0d1117}
 .sd-term-body .xterm,.sd-term-body .xterm .xterm-viewport,
 .sd-term-body .xterm .xterm-screen{background:transparent!important}
 .sd-term-body .xterm{padding:6px 8px;height:100%}

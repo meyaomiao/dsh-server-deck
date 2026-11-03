@@ -27,6 +27,8 @@ before(async () => {
         import { createRoot } from 'react-dom/client';
         import { ServerDeckApp } from './src/client/app.tsx';
         import { ensureStyles } from './src/client/styles.ts';
+        import { installTerminalConnection } from './src/client/terminal-connection.ts';
+        installTerminalConnection({ openWebSocket: (path) => new WebSocket(new URL(path, document.baseURI)) });
         ensureStyles();
         createRoot(document.getElementById('root')).render(createElement(ServerDeckApp, { visible: false }));`,
       resolveDir: root,
@@ -65,7 +67,12 @@ async function fixture(t, width = 900, overrides = {}) {
     window.WebSocket = class {
       static OPEN = 1;
       readyState = 1;
-      constructor() { setTimeout(() => this.onopen?.({}), 0); }
+      constructor() {
+        setTimeout(() => {
+          this.onopen?.({});
+          this.onmessage?.({ data: 'contrast fixture output\r\n' });
+        }, 0);
+      }
       send() {}
       close() { this.readyState = 3; }
     };
@@ -117,6 +124,56 @@ async function layout(page) {
       title: read('.sd-term-head .sd-title'), endpoint: read('.sd-term-head .sd-line'),
       body: read('.sd-term-body'),
     };
+  });
+}
+
+for (const [theme, base, pageBackground] of [
+  ['light', '#ffffff', '#ffffff'],
+  ['transparent', 'transparent', '#ffffff'],
+  ['dark', '#161b22', '#161b22'],
+]) {
+  test(`terminal text keeps at least 4.5:1 contrast on a ${theme} host`, async (t) => {
+    const page = await fixture(t);
+    await page.evaluate(({ base, pageBackground }) => {
+      document.body.style.setProperty('--dsw-alias-bg-base', base);
+      document.body.style.backgroundColor = pageBackground;
+    }, { base, pageBackground });
+    await enterTerminal(page);
+    await page.waitForFunction(() => document.querySelector('.xterm-rows')?.textContent.includes('contrast fixture output'));
+    const colors = await page.evaluate(() => {
+      const row = [...document.querySelectorAll('.xterm-rows > div')]
+        .find((node) => node.textContent.includes('contrast fixture output'));
+      const text = row.querySelector('span');
+      const rgba = (value) => {
+        const channels = value.match(/[\d.]+/g).map(Number);
+        return [channels[0], channels[1], channels[2], channels[3] ?? 1];
+      };
+      // Composite actual CSS backgrounds from the document canvas through the rendered glyph.
+      const ancestors = [];
+      for (let node = text; node; node = node.parentElement) ancestors.unshift(node);
+      let background = [255, 255, 255];
+      for (const node of ancestors) {
+        const [r, g, b, alpha] = rgba(getComputedStyle(node).backgroundColor);
+        background = [r, g, b].map((channel, index) => channel * alpha + background[index] * (1 - alpha));
+      }
+      return {
+        foreground: rgba(getComputedStyle(text).color).slice(0, 3), background,
+        header: getComputedStyle(document.querySelector('.sd-term-head')).backgroundColor,
+        wrap: getComputedStyle(document.querySelector('.sd-term-wrap')).backgroundColor,
+      };
+    });
+    const luminance = (rgb) => rgb.map((channel) => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+    const foreground = luminance(colors.foreground);
+    const background = luminance(colors.background);
+    const contrast = (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+    assert.deepEqual(colors.foreground, [201, 209, 217], 'real xterm output uses the existing #c9d1d9 foreground');
+    assert.ok(contrast >= 4.5, `${theme} effective contrast ${contrast.toFixed(2)}:1 on ${colors.background}`);
+    assert.equal(colors.header, 'rgba(0, 0, 0, 0)', 'header continues to inherit the host theme');
+    assert.equal(colors.wrap, base === 'transparent' ? 'rgba(0, 0, 0, 0)' : theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(22, 27, 34)');
+    t.diagnostic(`${theme}: foreground ${colors.foreground}, background ${colors.background}, contrast ${contrast.toFixed(2)}:1`);
   });
 }
 

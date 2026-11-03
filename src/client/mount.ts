@@ -51,7 +51,7 @@ interface NativeTabRegistry {
     priority?: 'extension' | 'builtin' | 'fallback';
     canOpen?: (address: string) => boolean;
     title: (address: string) => string;
-    guide?: readonly { order: number; title: () => string; icon?: unknown }[];
+    guide?: readonly { id: string; order: number; title: () => string; icon?: unknown }[];
   }): () => void;
 }
 
@@ -169,6 +169,7 @@ export function mountServerDeck(ctx: MountCtx): () => void {
           priority: 'extension',
           title: () => '服务器',
           guide: [{
+            id: NATIVE_ID,
             order: 45,
             title: () => '服务器',
             icon: (props: { size?: number }) => serverIcon(props.size ?? 16),

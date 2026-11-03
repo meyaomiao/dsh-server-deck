@@ -21,14 +21,16 @@
 
 | 插件版本 | 状态 | 对应 DSH |
 |---|---|---|
-| **0.3.x**（当前主线） | ✅ | **0.1.5-rc.1 / 0.1.5-rc.2**（及之后的 0.1.5 线；页签走官方原生右侧栏） |
-| 0.2.x | 🔧 维护态（仅修 bug） | DSH ≤ 0.1.2-rc.1（仍兼容 0.1.1-rc.2 / 0.1.2-alpha.4；better-sidebar 页签或独立抽屉） |
+| **0.5.x**（当前主线） | ✅ | **0.2.1-rc.5 起的 0.2.1 线**；使用官方 Connection 鉴权与桌面 WebSocket transport，发版验证覆盖 `0.2.1-rc.5` |
+| 0.3.x / 0.4.x | 历史版本 | 旧 DSH 原生右侧栏；建议同时升级 DSH 和插件，以获得本次终端及鉴权修复 |
+| 0.2.x | 历史版本 | DSH ≤ 0.1.2-rc.1；better-sidebar 页签或独立抽屉 |
 
 ### 本次升级功能变化
 
-- **页签宿主迁移**：DSH 0.1.5+ 优先注册官方原生右侧栏（`ctx.sidebarRightTabs`），better-sidebar 降为旧宿主回退，独立抽屉兜底不变。
-- **官方已有的交给官方**：不画赞踩、不画交付文件卡。服务器页签、PTY、指标卡新旧两线都在。
-- 0.3.x 在 DSH 0.1.2 + better-sidebar 上 **页签会退化成独立抽屉**；要旧页签请留在 0.2.x。
+- **导入先预览再确认**：先扫描 SSH 配置，查看候选、已有项及跳过原因，再勾选确认；需要的跳板依赖一起导入，取消不改台账。
+- **跳板机**：手工配置与 SSH 配置导入支持 ProxyJump 链，校验缺失引用、自指和环；更新或删除跳板会让依赖连接按新配置重建。
+- **终端与鉴权**：终端通过 DSH 官方 Connection 选择桌面/浏览器传输；REST 和 PTY 都检查宿主认证、Host 与 Origin，保留仅回环的访问范围。
+- **升级要求**：先将 DSH 升级到 `0.2.1-rc.5` 或更新的 0.2.1 版本，再更新插件并重启宿主。无法确认鉴权能力的旧宿主会关闭插件的网络入口。
 
 <p align="center">
   <img src="docs/screenshots/dashboard.png" width="420" alt="服务器卡片仪表盘">
@@ -75,11 +77,18 @@ xterm.js 全功能终端:5000 行回滚、256 色、窗口尺寸实时同步、�
 </p>
 
 ### ⤓ 一键导入 `~/.ssh/config`
-解析标准 ssh config(Host / HostName / User / Port / IdentityFile / ProxyJump),自动:
-- `ProxyJump` 导入后指向台账里的对应主机,连接时经它转发;
-- 跳过通配条目(`Host *`)与已存在主机;
-- **跳过 Git 托管平台密钥别名**(如 `Host github.com-xxx` / `User git`——它们不是可管理的服务器);
-- 多别名行(`Host 1.2.3.4 prod-gw`)优先取语义化别名做展示名。
+解析标准 ssh config(Host / HostName / User / Port / IdentityFile / ProxyJump)。点击「导入」后先显示候选预览，勾选并确认后才写入台账：
+- 标明通配条目、缺少用户名、已存在项与无效配置的处理原因；
+- 跳过 Git 托管平台密钥别名(如 `Host github.com-xxx` / `User git`)；
+- 多别名行(`Host 1.2.3.4 prod-gw`)优先取语义化别名做展示名；
+- 自动包含选中主机需要的跳板；已有主机可经确认补齐缺失关联，冲突或循环不会静默变成直连；
+- 检测后配置发生变化时要求重新预览，避免确认与实际写入不一致。
+
+`Include`、`Match` 与通配默认值不会自动展开，预览会说明这些限制；无法表达的连接配置显示原因并禁选。
+
+<p align="center">
+  <img src="docs/screenshots/import-preview.png" width="380" alt="导入 SSH 配置：候选预览、跳过原因与勾选确认">
+</p>
 
 ### ＋ 手动添加主机
 密码 / 私钥文件(+口令)/ SSH Agent 三种认证;可选台账里的另一台主机作跳板机(跳板机使用自己的认证);连接测试按钮即时反馈延迟。
@@ -88,14 +97,15 @@ xterm.js 全功能终端:5000 行回滚、256 色、窗口尺寸实时同步、�
   <img src="docs/screenshots/add-host.png" width="420" alt="添加服务器表单">
 </p>
 
-## 🔀 双形态挂载
+## 🔀 三种挂载方式
 
 | 环境 | 形态 |
 |---|---|
-| 安装了 [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) | 注册为侧边栏「🖥 服务器」页签(order 45),原生 tab chrome、设置页开关、visible 门控轮询 |
-| 未安装 | 自绘右侧可展开/收起面板:右缘竖条开关 + 拖缘调宽,宽度持久化 |
+| DSH 提供官方原生右侧栏 | 优先注册「服务器」原生页签 |
+| 原生栏不可用且安装 [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) | 注册侧边栏「服务器」页签，按可见状态刷新 |
+| 两种页签均不可用 | 独立右侧面板，支持展开/收起与拖动宽度 |
 
-装载顺序无关:client 入口不声明强制依赖,由内层动态子插件等待服务就绪后注册页签并自动收起独立面板。
+官方侧栏与可选 better-sidebar 通过动态子插件等待；页签就绪时自动收起独立面板，避免双入口。客户端声明 `slots` 和 `connection` 服务。
 
 ## 📦 安装
 
@@ -116,7 +126,7 @@ dsh plugin --profile web add .
 
 ## 🔐 安全模型
 
-- 所有 API 与 PTY 升级路由**仅回环放行**(127.0.0.1/::1),防 DNS rebinding 与局域网直连;
+- 所有 API 与 PTY 升级路由通过 DSH Connection 检查已认证 cookie、Host 与 Origin，并额外仅允许回环地址(127.0.0.1/::1)；缺少宿主鉴权 API 时返回不可用，不降为匿名访问；
 - 密码 / 私钥口令单独存放 `~/.dsh/server-deck.secrets.json`(0600),台账文件不含秘密,**API 响应永不回传**;
 - 删除主机仅移出台账并断开连接池,不会在远端执行任何操作;
 - 对话工具 `server_deck_hosts` / `server_deck_exec` 走同一条 SSH 连接池做非交互下发,不经过卡片 xterm,也不暴露成浏览器 REST;
@@ -139,8 +149,12 @@ dsh plugin --profile web add .
 pnpm install
 pnpm build       # esbuild:server bundle + client bundle(ModuleLoader 包装)
 pnpm typecheck   # tsc --noEmit
-pnpm test        # ssh config / 探针解析 / 台账校验 / 窗口粒度 / sar 回填 / 时序落盘
+pnpm test        # 单元、HTTP/WS 鉴权、真实 SSH 跳板和回归测试；Node 20/22/24
+pnpm exec playwright install chromium
+pnpm test:ui     # 真实 React/xterm 浏览器布局与导入确认交互
 ```
+
+核心发版链路见 [docs/core-flows.md](./docs/core-flows.md)。
 
 改仓库前先读 [CONTRIBUTING.md](./CONTRIBUTING.md)（Issue → 分支 → Draft PR）。思考原则见 [AI-ISSUE-WORKFLOW.md](./AI-ISSUE-WORKFLOW.md)。
 

@@ -17,7 +17,10 @@ const FULL_META_MS = 10 * 60_000;
 
 export class MetricRecorder {
   private timer: ReturnType<typeof setInterval> | undefined;
-  private ticking = false;
+  private ticking: number | undefined;
+  private generation = 0;
+  // Preserve manual tick() before start(); only an explicit stop disables it.
+  private stopped = false;
   private lastFullAt = new Map<string, number>();
   private meta = new Map<string, Pick<HostStatus, 'osName' | 'uptimeText' | 'cores' | 'kernelOrUptime'>>();
   private snapshots = new Map<string, HostStatus>();
@@ -30,12 +33,15 @@ export class MetricRecorder {
 
   start(): void {
     this.stop();
+    this.stopped = false;
     const tick = (): void => { void this.tick(false); };
     tick();
     this.arm();
   }
 
   stop(): void {
+    this.stopped = true;
+    this.generation += 1;
     if (this.timer !== undefined) {
       clearInterval(this.timer);
       this.timer = undefined;
@@ -44,6 +50,7 @@ export class MetricRecorder {
 
   /** 采集周期被设置页改掉后重武装。 */
   arm(): void {
+    if (this.stopped) return;
     if (this.timer !== undefined) {
       clearInterval(this.timer);
       this.timer = undefined;
@@ -66,12 +73,17 @@ export class MetricRecorder {
     this.lastFullAt.delete(id);
   }
 
+  private isCurrent(generation: number): boolean {
+    return !this.stopped && generation === this.generation;
+  }
+
   /** force=true 忽略 recording 开关,给工具栏「刷新」用。 */
   async tick(force: boolean): Promise<HostStatus[]> {
-    if (this.ticking) return this.latestStatuses();
+    const generation = this.generation;
+    if (this.stopped || this.ticking === generation) return this.latestStatuses();
     const settings = this.metrics.getSettings();
     if (!force && !settings.recording) return this.latestStatuses();
-    this.ticking = true;
+    this.ticking = generation;
     try {
       const paused = new Set(settings.pausedHostIds);
       const hosts = [...this.hosts.list()];
@@ -81,35 +93,41 @@ export class MetricRecorder {
       }
       let cursor = 0;
       const worker = async (): Promise<void> => {
-        while (cursor < hosts.length) {
+        while (this.isCurrent(generation) && cursor < hosts.length) {
           const host = hosts[cursor++];
           if (!force && paused.has(host.id)) {
             const prev = this.snapshots.get(host.id);
             results.set(host.id, prev ?? { id: host.id, state: 'unknown' as const });
             continue;
           }
-          results.set(host.id, await this.probeOne(host.id));
+          const status = await this.probeOne(host.id, generation);
+          if (!this.isCurrent(generation)) return;
+          if (status !== undefined) results.set(host.id, status);
         }
       };
       await Promise.all(Array.from({ length: Math.min(PROBE_CONCURRENCY, Math.max(1, hosts.length)) }, worker));
+      if (!this.isCurrent(generation)) return this.latestStatuses();
       const out = hosts.map((h) => results.get(h.id) ?? { id: h.id, state: 'unknown' as const });
       for (const s of out) this.snapshots.set(s.id, s);
       return out;
     } finally {
-      this.ticking = false;
+      if (this.ticking === generation) this.ticking = undefined;
     }
   }
 
-  private async probeOne(id: string): Promise<HostStatus> {
+  private async probeOne(id: string, generation: number): Promise<HostStatus | undefined> {
     const now = Date.now();
     const base: HostStatus = { id, state: 'probing', probedAt: new Date().toISOString(), ...this.meta.get(id) };
     try {
       await this.ssh.connect(id);
+      if (!this.isCurrent(generation)) return;
       const started = Date.now();
       const posix = await this.ssh.execSh(id, PROBE_SCRIPT, PROBE_TIMEOUT_MS);
+      if (!this.isCurrent(generation)) return;
       let parsed = parseProbeOutput(posix.stdout);
       if (!hasUsefulMetrics(parsed)) {
         const win = await this.ssh.exec(id, WINDOWS_PROBE_COMMAND, PROBE_TIMEOUT_MS);
+        if (!this.isCurrent(generation)) return;
         const winParsed = parseProbeOutput(win.stdout);
         if (hasUsefulMetrics(winParsed)) parsed = winParsed;
       }
@@ -126,6 +144,7 @@ export class MetricRecorder {
       const prevNet = this.metrics.getNetMonth(id);
       const month = await this.metrics.applyNetSample(id, now, parsed.netRxBytes, parsed.netTxBytes).catch(() =>
         accumulateNetMonth(prevNet, now, parsed.netRxBytes, parsed.netTxBytes));
+      if (!this.isCurrent(generation)) return;
       let netRxBps = parsed.netRxBps;
       let netTxBps = parsed.netTxBps;
       const dtSec = prevNet?.lastT !== undefined ? (now - prevNet.lastT) / 1000 : 0;
@@ -158,8 +177,10 @@ export class MetricRecorder {
         latencyMs,
         online: true,
       });
+      if (!this.isCurrent(generation)) return;
       return status;
     } catch (error) {
+      if (!this.isCurrent(generation)) return;
       const month = this.metrics.getNetMonth(id);
       const status: HostStatus = {
         ...base,
@@ -171,6 +192,7 @@ export class MetricRecorder {
         monthKey: month?.ym,
       };
       await this.metrics.append(id, { t: now, online: false }).catch(() => { /* 离线也尽量记 */ });
+      if (!this.isCurrent(generation)) return;
       return status;
     }
   }
