@@ -116,14 +116,18 @@ const APP_CSS = `
 @keyframes sd-rot{to{transform:rotate(360deg)}}
 `;
 
-let injected = false;
-
-/** 注入全局样式(幂等)。 */
+/** 注入全局样式(幂等),以 DOM 为准以便 HMR 删除后重建。 */
 export function ensureStyles(): void {
-  if (injected || document.getElementById(STYLE_ID) !== null) return;
+  const existing = document.getElementById(STYLE_ID);
+  if (existing !== null) {
+    existing.setAttribute('data-plugin', 'dsh-server-deck');
+    existing.setAttribute('data-plugin-css', 'dsh-server-deck/styles');
+    return;
+  }
   const style = document.createElement('style');
   style.id = STYLE_ID;
+  style.setAttribute('data-plugin', 'dsh-server-deck');
+  style.setAttribute('data-plugin-css', 'dsh-server-deck/styles');
   style.textContent = `${APP_CSS}\n${XTERM_CSS}`;
   document.head.appendChild(style);
-  injected = true;
 }
