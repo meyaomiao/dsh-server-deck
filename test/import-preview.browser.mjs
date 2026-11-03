@@ -216,6 +216,22 @@ test('existing host repair is selected by default and the result distinguishes u
   assert.equal(state.hosts[0].jumpHostId, 'jump');
 });
 
+test('380px preview shows actionable rows, disabled reasons and confirmation totals together', async (t) => {
+  const hosts = [{ id: 'old', name: 'old', host: 'old.example', username: 'fixture', port: 22, auth: 'agent', createdAt: '2026-01-01' }];
+  const { page, state } = await fixture(t, { hosts, config: block('one') + block('two') + block('old') + block('invalid', ' ProxyJump absent') });
+  await open(page);
+  await page.evaluate(() => { Object.assign(document.querySelector('#fixture').style, { width: '380px', height: '690px' }); });
+  assert.equal(await page.getByRole('checkbox', { name: 'one', exact: true }).isChecked(), true);
+  assert.equal(await page.getByRole('checkbox', { name: 'two', exact: true }).isChecked(), true);
+  assert.equal(await page.getByRole('checkbox', { name: 'old', exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole('checkbox', { name: 'invalid', exact: true }).isDisabled(), true);
+  assert.match(await page.locator('.sd-import-summary').textContent(), /将新增 2 台，更新跳板关联 0 台/);
+  const fits = await page.locator('.sd-import').evaluate((element) => element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight);
+  assert.equal(fits, true, 'all review rows and confirmation totals fit in the sidebar');
+  if (process.env.SERVER_DECK_IMPORT_SCREENSHOT) await page.locator('#fixture').screenshot({ path: process.env.SERVER_DECK_IMPORT_SCREENSHOT });
+  assert.deepEqual(state.writes, []);
+});
+
 test('read and partial write errors are visible; preview fits a narrow panel', async (t) => {
   const { page, state } = await fixture(t, { failName: 'two' });
   state.readError = true;

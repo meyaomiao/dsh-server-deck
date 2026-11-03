@@ -23,6 +23,7 @@ interface Node {
   route?: string[];
   jump?: string;
   explicitNone?: boolean;
+  excluded?: boolean;
 }
 interface Plan { preview: ImportPreview; nodes: Map<string, Node>; hosts: readonly HostEntry[] }
 const GIT_HOSTS = new Set([
@@ -50,15 +51,16 @@ function sections(text: string): Array<{ text: string; names: string[]; badPort:
   const result: ReturnType<typeof sections> = [];
   let current: ReturnType<typeof sections>[number] | undefined;
   for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/#.*$/, '').trim();
+    const canonical = raw.replace(/^(\s*[A-Za-z][\w]*)\s*=\s*/, '$1 ');
+    const line = canonical.replace(/#.*$/, '').trim();
     const host = /^host\s+(.+)$/i.exec(line);
     if (host) {
-      current = { text: raw, names: host[1].split(/\s+/), badPort: false, unsupported: false };
+      current = { text: canonical, names: host[1].split(/\s+/), badPort: false, unsupported: false };
       result.push(current);
     } else if (/^match\s/i.test(line)) {
       current = undefined;
     } else if (current) {
-      current.text += `\n${raw}`;
+      current.text += `\n${canonical}`;
       const port = /^port\s+(.+)$/i.exec(line);
       if (port && (!/^\d+$/.test(port[1]) || Number(port[1]) < 1 || Number(port[1]) > 65535)) current.badPort = true;
       if (/^proxycommand\s+(?!none$)/i.test(line)) current.unsupported = true;
@@ -86,6 +88,7 @@ function planImport(text: string, hosts: readonly HostEntry[]): Plan {
     const key = endpoint(username, host, port);
     const found = endpoints.get(key);
     if (found) {
+      found.error ??= extraError;
       if ((found.source?.proxyJump ?? '').toLowerCase() !== (source.proxyJump ?? '').toLowerCase()) {
         found.error = '同一连接端点有不同 ProxyJump，无法用单一跳板关联表示';
       }
@@ -110,6 +113,7 @@ function planImport(text: string, hosts: readonly HostEntry[]): Plan {
     if (GIT_HOSTS.has(host.toLowerCase()) || /^(github|gitlab|gitee)\./i.test(host) || username === 'git') {
       node.row.action = 'skip';
       node.row.reason = 'Git 托管 SSH 端点，不是可管理服务器';
+      node.excluded = true;
       node.error = undefined;
     }
     nodes.set(node.row.id, node);
@@ -226,7 +230,7 @@ function planImport(text: string, hosts: readonly HostEntry[]): Plan {
       return;
     }
     if (node.error) throw failure(node.error);
-    if (!node.existing && (node.row.action === 'skip' || !node.input)) throw failure(`跳板不可导入：${node.row.name}`);
+    if (node.excluded || (!node.existing && (node.row.action === 'skip' || !node.input))) throw failure(`跳板不可导入：${node.row.name}`);
     const jump = node.jump ?? (node.existing?.jumpHostId ? `host:${node.existing.jumpHostId}` : undefined);
     if (jump) walk(jump, new Set([...seen, id]));
   };
@@ -238,7 +242,7 @@ function planImport(text: string, hosts: readonly HostEntry[]): Plan {
   }
   for (const node of nodes.values()) {
     if (node.error) { node.row.action = 'invalid'; node.row.reason = node.error; continue; }
-    if (node.row.action === 'skip' && !node.existing) continue;
+    if (node.row.action === 'skip' && (!node.existing || node.excluded)) continue;
     if (node.existing) {
       node.row.action = node.jump && !node.existing.jumpHostId ? 'update' : 'skip';
       node.row.reason = node.row.action === 'update' ? '已有主机，可补充跳板关联（保留其余设置）' : '已在台账中，无需修改';

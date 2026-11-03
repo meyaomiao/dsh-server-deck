@@ -1,12 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { Readable } from 'node:stream';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { HostPool } from '../src/server/pool.ts';
+import type { MetricStore } from '../src/server/metric-store.ts';
+import type { MetricRecorder } from '../src/server/recorder.ts';
+import { createApiRouter } from '../src/server/router.ts';
 import type { HostEntry, HostInput, ImportPreview } from '../src/types.ts';
 import { createSshImporter, type ImportStore } from '../src/server/importer.ts';
-import { assertJumpTarget, normalizeInput } from '../src/server/store.ts';
+import { HostStore, assertJumpTarget, normalizeInput } from '../src/server/store.ts';
 
 function host(id: string, extra: Partial<HostEntry> = {}): HostEntry {
   return { id, name: id, host: `${id}.example`, username: 'fixture', port: 22, auth: 'agent', createdAt: '2026-01-01', ...extra };
@@ -65,26 +70,52 @@ test('preview is zero-write and explains existing, Git, missing user, wildcard a
   assert.match(row(preview, 'bad-port').reason, /端口/);
 });
 
-test('preview does not touch the real store files or read a private key', async () => {
+test('SSH equals-separated directives retain qualified jumps and missing-reference errors', async () => {
+  const store = new MemoryStore();
+  const config = 'Host=target\n HostName = target.example\n User=fixture\n ProxyJump = fixture@jump:22\n'
+    + 'Host broken\n HostName=broken.example\n User = fixture\n ProxyJump=missing\n' + block('jump');
+  const importer = createSshImporter(store, async () => config);
+  const preview = await importer.preview();
+  assert.equal(row(preview, 'target').action, 'create');
+  assert.match(row(preview, 'broken').reason, /不存在/);
+  await importer.confirm(confirmation(preview, 'target'));
+  assert.deepEqual(store.writes, ['create:jump', 'create:target']);
+  assert.equal(store.hosts[1].jumpHostId, store.hosts[0].id);
+});
+
+test('existing Git endpoints retain their exclusion reason and cannot become jump dependencies', async () => {
+  const store = new MemoryStore([host('git-entry', { name: 'github', host: 'github.com', username: 'git' })]);
+  const importer = createSshImporter(store, async () => 'Host github\n HostName github.com\n User git\n' + block('target', ' ProxyJump github'));
+  const preview = await importer.preview();
+  assert.equal(row(preview, 'github').action, 'skip');
+  assert.match(row(preview, 'github').reason, /Git 托管/);
+  assert.equal(row(preview, 'target').action, 'invalid');
+  assert.match(row(preview, 'target').reason, /跳板不可导入/);
+  assert.deepEqual(store.writes, []);
+});
+
+test('invalid duplicate endpoint declarations are not hidden by a valid first alias', async () => {
+  const importer = createSshImporter(new MemoryStore(), async () => block('one') + 'Host duplicate\n HostName one.example\n User fixture\n Port invalid\n');
+  const preview = await importer.preview();
+  assert.equal(preview.candidates.length, 1);
+  assert.equal(row(preview, 'one').action, 'invalid');
+  assert.match(row(preview, 'one').reason, /端口/);
+});
+
+test('preview does not touch real store files or read a private key', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'server-deck-import-'));
-  const data = join(dir, '.dsh');
-  await mkdir(data);
   const ledger = JSON.stringify({ version: 1, hosts: [] });
   const secrets = JSON.stringify({ fixture: { password: 'fixture-only-secret' } });
-  await writeFile(join(data, 'server-deck.json'), ledger);
-  await writeFile(join(data, 'server-deck.secrets.json'), secrets);
-  const code = `import {HostStore} from ${JSON.stringify(new URL('../src/server/store.ts', import.meta.url).href)};
-    import {createSshImporter} from ${JSON.stringify(new URL('../src/server/importer.ts', import.meta.url).href)};
-    const store = new HostStore(); await store.load();
-    const preview = await createSshImporter(store, async () => ${JSON.stringify(block('fresh', ' IdentityFile /does-not-exist/PRIVATE_KEY'))}).preview();
-    if(preview.candidates[0].action !== 'create') throw Error('expected preview');
-    if(JSON.stringify(preview).includes('PRIVATE_KEY')) throw Error('key path should not be exposed in preview');`;
-  const child = spawnSync(process.execPath, ['--experimental-transform-types', '--input-type=module', '-e', code], {
-    env: { ...process.env, HOME: dir }, encoding: 'utf8',
-  });
-  assert.equal(child.status, 0, child.stderr);
-  assert.equal(await readFile(join(data, 'server-deck.json'), 'utf8'), ledger);
-  assert.equal(await readFile(join(data, 'server-deck.secrets.json'), 'utf8'), secrets);
+  await writeFile(join(dir, 'server-deck.json'), ledger);
+  await writeFile(join(dir, 'server-deck.secrets.json'), secrets);
+  const store = new HostStore(dir);
+  await store.load();
+  const preview = await createSshImporter(store, async () => block('fresh', ' IdentityFile /does-not-exist/PRIVATE_KEY')).preview();
+  assert.equal(preview.candidates[0].action, 'create');
+  assert.ok(!JSON.stringify(preview).includes('PRIVATE_KEY'), 'key paths are not exposed in preview');
+  assert.ok(!JSON.stringify(preview).includes('fixture-only-secret'));
+  assert.equal(await readFile(join(dir, 'server-deck.json'), 'utf8'), ledger);
+  assert.equal(await readFile(join(dir, 'server-deck.secrets.json'), 'utf8'), secrets);
 });
 
 test('confirm only imports selected independent hosts; a fresh preview is idempotent', async () => {
@@ -338,6 +369,56 @@ test('read failures and write failures are visible with accurate completed count
   assert.equal(result.createdCount, 1);
   assert.equal(result.updatedCount, 0);
   assert.equal(result.skippedCount, 1);
+});
+
+test('router defaults to zero-write preview and only confirms a freshly validated ID selection', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'server-deck-import-route-'));
+  const store = new HostStore(dir);
+  await store.load();
+  const target = await store.create({ name: 'target', host: 'target.example', username: 'fixture', auth: 'password', password: 'fixture-secret' });
+  const closed: string[] = [];
+  let config = block('target', ' ProxyJump jump') + block('jump') + block('independent');
+  const router = createApiRouter(store, { close: (id: string) => closed.push(id) } as unknown as HostPool,
+    {} as MetricStore, {} as MetricRecorder, undefined, { requestRejection: () => undefined }, async () => config);
+  const request = async (body: unknown): Promise<{ status: number; body: any }> => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]) as IncomingMessage;
+    Object.assign(req, { url: '/server-deck/api/import-ssh-config', method: 'POST', socket: { remoteAddress: '127.0.0.1' } });
+    let status = 0;
+    let response = '';
+    await router(req, {
+      writeHead(code: number) { status = code; },
+      end(text: string) { response = text; },
+    } as ServerResponse);
+    return { status, body: JSON.parse(response) };
+  };
+  const ledger = await readFile(join(dir, 'server-deck.json'), 'utf8');
+  const secrets = await readFile(join(dir, 'server-deck.secrets.json'), 'utf8');
+  for (const body of [{}, { dryRun: false }, { action: 'preview', host: 'arbitrary', password: 'arbitrary' }]) {
+    const response = await request(body);
+    assert.equal(response.status, 200);
+    assert.equal(row(response.body, 'target').action, 'update');
+    assert.equal(await readFile(join(dir, 'server-deck.json'), 'utf8'), ledger);
+    assert.equal(await readFile(join(dir, 'server-deck.secrets.json'), 'utf8'), secrets);
+    assert.ok(!JSON.stringify(response.body).includes('fixture-secret'));
+  }
+  for (const body of [null, [], { action: 'anything' }]) assert.equal((await request(body)).status, 400);
+  const preview = (await request({ action: 'preview' })).body as ImportPreview;
+  assert.equal((await request({ action: 'confirm', fingerprint: preview.fingerprint, selectedIds: ['unknown'] })).status, 400);
+  assert.deepEqual(closed, []);
+  const result = await request({ action: 'confirm', ...confirmation(preview, 'target'), host: 'arbitrary', username: 'arbitrary' });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.createdCount, 1);
+  assert.equal(result.body.updatedCount, 1);
+  assert.equal(store.list().length, 2, 'unselected independent host is not imported');
+  assert.equal(store.get(target.id)!.host, 'target.example');
+  assert.equal(store.get(target.id)!.auth, 'password');
+  assert.ok(store.get(target.id)!.jumpHostId);
+  assert.deepEqual(closed, [target.id]);
+  assert.equal(await readFile(join(dir, 'server-deck.secrets.json'), 'utf8'), secrets);
+  assert.equal((await request({ action: 'confirm', ...confirmation(preview, 'target') })).status, 409);
+  const current = (await request({ action: 'preview' })).body;
+  config += '\n# changed';
+  assert.equal((await request({ action: 'confirm', ...confirmation(current, 'independent') })).status, 409);
 });
 
 test('concurrent confirmations are refused and stale retries cannot duplicate imported hosts', async () => {
