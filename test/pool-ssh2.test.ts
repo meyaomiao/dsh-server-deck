@@ -4,9 +4,10 @@ import { once } from 'node:events';
 import { connect as netConnect, type Socket } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import ssh2, { type Connection } from 'ssh2';
-const { Server, utils } = ssh2;
 import { HostPool } from '../src/server/pool.ts';
 import type { HostEntry } from '../src/types.ts';
+
+const { Server, utils } = ssh2;
 
 // Only synthetic credentials and an in-memory host key are used.
 const hostKey = utils.generateKeyPairSync('ed25519').private;

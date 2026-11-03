@@ -12,15 +12,21 @@
 
 import type { Context } from '@deepseek-ai/cordis';
 import { mountServerDeck } from './client/mount.ts';
+import { installTerminalConnection, type TerminalConnection } from './client/terminal-connection.ts';
 
 /** Cordis 插件名,loader 诊断使用。 */
 const name = 'server-deck';
 
-/** 客户端强制前置:官方座位系统(原生右侧栏内容体注册需要)。 */
-const inject = ['slots'];
+/** slots 注册座位;connection 为浏览器与桌面终端提供已认证通道。 */
+const inject = ['slots', 'connection'];
 
 /** 客户端插件体。 */
 export function apply(ctx: Context): void {
+  ctx.effect(() => {
+    let connection: TerminalConnection | undefined;
+    try { connection = (ctx as unknown as { connection?: TerminalConnection }).connection; } catch { /* old host */ }
+    return installTerminalConnection(connection);
+  }, 'server-deck: authenticated terminal carrier');
   ctx.effect(() => mountServerDeck(ctx as unknown as Parameters<typeof mountServerDeck>[0]), 'server-deck: dual-mode mount');
 }
 

@@ -40,12 +40,12 @@ async function request(store: HostStore, pool: HostPool, id: string, method: str
   Object.assign(req, { socket: { remoteAddress: '127.0.0.1' } });
   let status = 0;
   const res = { writeHead(code: number) { status = code; }, end() {} } as unknown as ServerResponse;
-  await createApiRouter(store, pool, { removeHost: async () => {} } as unknown as MetricStore, { forget() {} } as unknown as MetricRecorder)(req, res);
+  await createApiRouter(store, pool, { removeHost: async () => {} } as unknown as MetricStore, { forget() {} } as unknown as MetricRecorder, undefined, { requestRejection: () => undefined })(req, res);
   return status;
 }
 
 for (const [field, value] of Object.entries({ host: 'new.invalid', port: 2222, username: 'new-user', auth: 'agent', keyPath: '/fixture-key', password: 'new-password', passphrase: 'new-passphrase', jumpHostId: null }).concat([['password', null], ['passphrase', null]])) {
-  test(`PATCH ${field} invalidates target and transitive dependents only`, async (t) => {
+  test(`PATCH ${field}${value === null ? ':null' : ''} invalidates target and transitive dependents only`, async (t) => {
     const f = fixture(t, [host('gateway'), host('jump', 'gateway'), host('target', 'jump'), host('unrelated')]);
     const store = storeFor(f.hosts);
     const target = await f.pool.connect('target');
