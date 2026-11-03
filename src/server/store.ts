@@ -10,8 +10,6 @@ import { join } from 'node:path';
 import type { AuthKind, HostEntry, HostInput } from '../types.ts';
 
 const DSH_DIR = join(homedir(), '.dsh');
-const HOSTS_FILE = join(DSH_DIR, 'server-deck.json');
-const SECRETS_FILE = join(DSH_DIR, 'server-deck.secrets.json');
 
 interface SecretsBlob {
   [hostId: string]: { password?: string; passphrase?: string };
@@ -120,12 +118,19 @@ async function readJson<T>(path: string, fallback: T): Promise<T> {
 export class HostStore {
   private blob: HostsBlob = { version: 1, hosts: [] };
   private secrets: SecretsBlob = {};
+  private readonly hostsFile: string;
+  private readonly secretsFile: string;
+
+  constructor(private readonly directory = DSH_DIR) {
+    this.hostsFile = join(directory, 'server-deck.json');
+    this.secretsFile = join(directory, 'server-deck.secrets.json');
+  }
 
   async load(): Promise<void> {
-    await mkdir(DSH_DIR, { recursive: true });
-    this.blob = await readJson<HostsBlob>(HOSTS_FILE, { version: 1, hosts: [] });
+    await mkdir(this.directory, { recursive: true });
+    this.blob = await readJson<HostsBlob>(this.hostsFile, { version: 1, hosts: [] });
     if (!Array.isArray(this.blob.hosts)) this.blob.hosts = [];
-    this.secrets = await readJson<SecretsBlob>(SECRETS_FILE, {});
+    this.secrets = await readJson<SecretsBlob>(this.secretsFile, {});
   }
 
   list(): readonly HostEntry[] {
@@ -134,6 +139,18 @@ export class HostStore {
 
   get(id: string): HostEntry | undefined {
     return this.blob.hosts.find((h) => h.id === id);
+  }
+
+  /** 修改/删除前固定失效范围;删除会清除直接引用,之后无法还原旧依赖。 */
+  dependents(id: string): string[] {
+    const affected = new Set([id]);
+    const hosts = this.list();
+    for (const current of affected) {
+      for (const host of hosts) {
+        if (host.jumpHostId === current) affected.add(host.id);
+      }
+    }
+    return [...affected];
   }
 
   getSecret(id: string): { password?: string; passphrase?: string } {
@@ -163,9 +180,9 @@ export class HostStore {
     this.blob.hosts.push(entry);
     if (secret.password !== undefined || secret.passphrase !== undefined) {
       this.secrets[entry.id] = secret;
-      await atomicWrite(SECRETS_FILE, JSON.stringify(this.secrets, null, 2), 0o600);
+      await atomicWrite(this.secretsFile, JSON.stringify(this.secrets, null, 2), 0o600);
     }
-    await atomicWrite(HOSTS_FILE, JSON.stringify(this.blob, null, 2));
+    await atomicWrite(this.hostsFile, JSON.stringify(this.blob, null, 2));
     return entry;
   }
 
@@ -178,16 +195,16 @@ export class HostStore {
     assertJumpTarget(id, next.jumpHostId, [...this.blob.hosts.filter((h) => h.id !== id), next]);
     const idx = this.blob.hosts.indexOf(entry);
     this.blob.hosts[idx] = next;
-    if (secret.password !== undefined || secret.passphrase !== undefined) {
+    if (secret.password !== undefined || secret.passphrase !== undefined || input.password === null || input.passphrase === null) {
       this.secrets[id] = { ...this.secrets[id], ...secret };
       // 显式清除:password/passphrase 传 null 时 normalize 得到 undefined,这里删除键
       for (const k of ['password', 'passphrase'] as const) {
         if (this.secrets[id][k] === undefined) delete this.secrets[id][k];
       }
       if (Object.keys(this.secrets[id]).length === 0) delete this.secrets[id];
-      await atomicWrite(SECRETS_FILE, JSON.stringify(this.secrets, null, 2), 0o600);
+      await atomicWrite(this.secretsFile, JSON.stringify(this.secrets, null, 2), 0o600);
     }
-    await atomicWrite(HOSTS_FILE, JSON.stringify(this.blob, null, 2));
+    await atomicWrite(this.hostsFile, JSON.stringify(this.blob, null, 2));
     return next;
   }
 
@@ -200,9 +217,9 @@ export class HostStore {
     }
     if (id in this.secrets) {
       delete this.secrets[id];
-      await atomicWrite(SECRETS_FILE, JSON.stringify(this.secrets, null, 2), 0o600);
+      await atomicWrite(this.secretsFile, JSON.stringify(this.secrets, null, 2), 0o600);
     }
-    await atomicWrite(HOSTS_FILE, JSON.stringify(this.blob, null, 2));
+    await atomicWrite(this.hostsFile, JSON.stringify(this.blob, null, 2));
     return true;
   }
 }

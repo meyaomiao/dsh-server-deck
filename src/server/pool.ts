@@ -46,138 +46,173 @@ function messageOf(error: unknown): string {
 }
 
 interface Pooled {
-  conn: Client;
-  /** 跳板链路,从近到远;关闭目标连接时一并断开。 */
-  jumps: Client[];
+  promise: Promise<Client>;
+  /** 包含目标和全部跳板,在异步连接前固定依赖。 */
+  hostIds: Set<string>;
+  clients: Client[];
+  channels: Set<ClientChannel>;
+  abort: AbortController;
 }
 
-/** 建立连接;跳板机递归打开,目标走 forwardOut 的 sock。 */
-async function connectClient(conn: Client, cfg: ConnectConfig): Promise<void> {
+/** 生命周期监听由调用方在 connect 前安装;abort 同时结束 pending 等待。 */
+function connectClient(conn: Client, cfg: ConnectConfig, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    let settled = false;
-    conn.on('error', (error) => {
-      if (settled) return;
-      settled = true;
-      try { conn.end(); } catch { /* 已断 */ }
-      reject(error);
-    });
-    conn.once('ready', () => {
-      settled = true;
-      resolve();
-    });
-    try {
-      conn.connect(cfg);
-    } catch (error) {
-      settled = true;
-      try { conn.end(); } catch { /* 已断 */ }
-      reject(error);
-    }
+    const cleanup = (): void => {
+      conn.off('ready', ready);
+      signal.removeEventListener('abort', aborted);
+    };
+    const ready = (): void => { cleanup(); resolve(); };
+    const aborted = (): void => { cleanup(); reject(signal.reason); };
+    if (signal.aborted) { aborted(); return; }
+    conn.once('ready', ready);
+    signal.addEventListener('abort', aborted, { once: true });
+    try { conn.connect(cfg); } catch (error) { cleanup(); reject(error); }
   });
 }
 
-/** 在跳板机上向目标地址开一条转发通道。 */
-function forwardOut(conn: Client, host: string, port: number): Promise<ClientChannel> {
+/** 取消/超时/同步 throw 都清理 timer;晚到回调返回的通道立即关闭。 */
+function forwardOut(conn: Client, host: string, port: number, signal: AbortSignal): Promise<ClientChannel> {
   return new Promise((resolve, reject) => {
     let done = false;
-    const timer = setTimeout(() => {
-      done = true;
-      reject(new Error('跳板转发超时'));
-    }, READY_TIMEOUT_MS);
-    conn.forwardOut('127.0.0.1', 0, host, port, (error, stream) => {
-      if (done) {
-        try { stream?.close(); } catch { /* 已断 */ }
-        return;
-      }
+    const cleanup = (): void => {
       done = true;
       clearTimeout(timer);
-      if (error !== undefined && error !== null) reject(new Error(`跳板转发失败:${messageOf(error)}`));
-      else if (stream === undefined) reject(new Error('跳板转发失败:无返回通道'));
-      else resolve(stream);
-    });
+      signal.removeEventListener('abort', aborted);
+    };
+    const fail = (error: unknown): void => { if (!done) { cleanup(); reject(error); } };
+    const aborted = (): void => fail(signal.reason);
+    const timer = setTimeout(() => fail(new Error('跳板转发超时')), READY_TIMEOUT_MS);
+    if (signal.aborted) { aborted(); return; }
+    signal.addEventListener('abort', aborted, { once: true });
+    try {
+      conn.forwardOut('127.0.0.1', 0, host, port, (error, stream) => {
+        if (done || error !== undefined && error !== null || stream === undefined) {
+          try { stream?.close(); } catch { /* 已断 */ }
+          if (!done) fail(new Error(`跳板转发失败:${error ? messageOf(error) : '无返回通道'}`));
+          return;
+        }
+        cleanup();
+        resolve(stream);
+      });
+    } catch (error) { fail(error); }
   });
 }
 
-function closeChain(pooled: Pooled): void {
-  for (const conn of [pooled.conn, ...pooled.jumps]) {
-    try { conn.end(); } catch { /* 已断 */ }
-  }
-}
-
-/** 每主机一条长连接;exec / shell 复用。 */
+/** 每主机一条长连接;exec / shell 复用,并发建立共享同一个任务。 */
 export class HostPool {
   private pool = new Map<string, Pooled>();
+  /** 包含独立 test,确保退出也能取消尚在握手/转发的短连接。 */
+  private active = new Set<Pooled>();
 
   constructor(
     private readonly resolveHost: (id: string) => HostEntry | undefined,
     private readonly resolveSecret: (id: string) => { password?: string; passphrase?: string },
   ) {}
 
-  /** 取(或建立)主机的就绪连接。断开时经 close 事件自动出池。 */
   connect(id: string): Promise<Client> {
     const cached = this.pool.get(id);
-    if (cached !== undefined) {
-      // close 事件已保证缓存只含存活连接
-      return Promise.resolve(cached.conn);
-    }
-
+    if (cached !== undefined) return cached.promise;
     const host = this.resolveHost(id);
     if (host === undefined) return Promise.reject(new Error('主机不存在'));
-    return this.open(host, new Set()).then(
-      (opened) => {
-        const cleanup = (): void => {
-          this.pool.delete(id);
-          for (const jump of opened.jumps) {
-            try { jump.end(); } catch { /* 已断 */ }
-          }
-        };
-        opened.conn.on('close', cleanup);
-        opened.conn.on('end', cleanup);
-        opened.conn.on('error', cleanup);
-        this.pool.set(id, opened);
-        return opened.conn;
-      },
-      (error) => { throw new Error(`SSH 连接失败:${messageOf(error)}`); },
-    );
+    try {
+      const opened = this.start(host, () => {
+        // 旧连接的迟到事件不能删除同 id 的替代连接。
+        if (this.pool.get(id) === opened) this.pool.delete(id);
+      });
+      this.pool.set(id, opened);
+      return opened.promise;
+    } catch (error) {
+      return Promise.reject(new Error(`SSH 连接失败:${messageOf(error)}`));
+    }
   }
 
-  private async open(host: HostEntry, seen: Set<string>): Promise<Pooled> {
-    if (seen.has(host.id)) throw new Error('跳板机存在循环引用');
-    seen.add(host.id);
-    const jump = host.jumpHostId !== undefined ? this.resolveHost(host.jumpHostId) : undefined;
-    if (host.jumpHostId !== undefined && jump === undefined) {
-      throw new Error(`跳板机不存在:${host.jumpHostId}`);
+  private start(host: HostEntry, onClose: () => void = () => {}): Pooled {
+    const hosts: HostEntry[] = [];
+    const hostIds = new Set<string>();
+    let current: HostEntry | undefined = host;
+    while (current !== undefined) {
+      if (hostIds.has(current.id)) throw new Error('跳板机存在循环引用');
+      hostIds.add(current.id);
+      hosts.unshift({ ...current });
+      const jumpId: string | undefined = current.jumpHostId;
+      current = jumpId === undefined ? undefined : this.resolveHost(jumpId);
+      if (jumpId !== undefined && current === undefined) throw new Error(`跳板机不存在:${jumpId}`);
     }
-    const cfg = await buildConnectConfig(host, this.resolveSecret(host.id));
-    let parent: Pooled | undefined;
-    if (jump !== undefined) {
-      try {
-        parent = await this.open(jump, seen);
-        cfg.sock = await forwardOut(parent.conn, host.host, host.port);
-      } catch (error) {
-        if (parent !== undefined) closeChain(parent);
-        throw new Error(`经跳板机 ${jump.name} 连接失败:${messageOf(error)}`);
+    const opened: Pooled = {
+      // 延后启动,先登记整个任务;同步 close 也能取消尚未创建的 Client。
+      promise: Promise.resolve().then(() => this.open(hosts, opened)).catch((error: unknown) => {
+        this.stop(opened, error);
+        throw new Error(`SSH 连接失败:${messageOf(error)}`);
+      }),
+      hostIds, clients: [], channels: new Set(), abort: new AbortController(),
+    };
+    opened.abort.signal.addEventListener('abort', onClose, { once: true });
+    this.active.add(opened);
+    return opened;
+  }
+
+  private stop(opened: Pooled, error: unknown = new Error('SSH 连接已关闭')): void {
+    if (opened.abort.signal.aborted) return;
+    this.active.delete(opened);
+    opened.abort.abort(error);
+    for (const channel of opened.channels) {
+      try { channel.close(); } catch { /* 已断 */ }
+    }
+    for (const conn of [...opened.clients].reverse()) {
+      try { conn.end(); } catch { /* 已断 */ }
+    }
+  }
+
+  private async open(hosts: HostEntry[], opened: Pooled): Promise<Client> {
+    const signal = opened.abort.signal;
+    let parent: Client | undefined;
+    for (const host of hosts) {
+      signal.throwIfAborted();
+      const cfg = await buildConnectConfig(host, this.resolveSecret(host.id));
+      signal.throwIfAborted();
+      if (parent !== undefined) {
+        try {
+          const channel = await forwardOut(parent, host.host, host.port, signal);
+          if (signal.aborted || channel.destroyed) {
+            try { channel.close(); } catch { /* 已断 */ }
+            signal.throwIfAborted();
+            throw new Error('跳板转发通道已关闭');
+          }
+          opened.channels.add(channel);
+          channel.once('close', () => this.stop(opened, new Error('跳板转发通道已关闭')));
+          channel.on('error', (error: Error) => this.stop(opened, error));
+          signal.throwIfAborted();
+          cfg.sock = channel;
+        } catch (error) {
+          throw new Error(`经跳板机连接失败:${messageOf(error)}`);
+        }
       }
+      const conn = new Client();
+      opened.clients.push(conn);
+      // 必须先于 connect/ready:forwarded sock 可同步触发 ready/end/close。
+      conn.on('error', (error) => this.stop(opened, error));
+      conn.on('end', () => this.stop(opened, new Error('SSH 连接已断开')));
+      conn.on('close', () => this.stop(opened));
+      await connectClient(conn, cfg, signal);
+      signal.throwIfAborted();
+      parent = conn;
     }
-    const conn = new Client();
-    try {
-      await connectClient(conn, cfg);
-    } catch (error) {
-      if (parent !== undefined) closeChain(parent);
-      throw error;
-    }
-    return { conn, jumps: parent === undefined ? [] : [parent.conn, ...parent.jumps] };
+    signal.throwIfAborted();
+    return parent!;
   }
 
   /** 独立短连接测试(不占用连接池),返回握手延迟。 */
   async test(host: HostEntry): Promise<{ ok: true; latencyMs: number } | { ok: false; error: string }> {
     const started = Date.now();
+    let opened: Pooled | undefined;
     try {
-      const opened = await this.open(host, new Set());
-      const latencyMs = Date.now() - started;
-      closeChain(opened);
-      return { ok: true, latencyMs };
+      opened = this.start(host);
+      await opened.promise;
+      return { ok: true, latencyMs: Date.now() - started };
     } catch (error) {
       return { ok: false, error: messageOf(error) };
+    } finally {
+      if (opened !== undefined) this.stop(opened);
     }
   }
 
@@ -253,14 +288,12 @@ export class HostPool {
   }
 
   close(id: string): void {
-    const pooled = this.pool.get(id);
-    if (pooled !== undefined) {
-      this.pool.delete(id);
-      closeChain(pooled);
+    for (const opened of [...this.active]) {
+      if (opened.hostIds.has(id)) this.stop(opened);
     }
   }
 
   closeAll(): void {
-    for (const id of [...this.pool.keys()]) this.close(id);
+    for (const opened of [...this.active]) this.stop(opened);
   }
 }
