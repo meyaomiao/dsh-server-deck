@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { ptyUrl } from './api.ts';
+import { openTerminalWebSocket } from './terminal-connection.ts';
 
 export interface TerminalPaneProps {
   hostId: string;
@@ -47,7 +48,12 @@ export function TerminalPane(props: TerminalPaneProps): React.ReactNode {
     let ws: WebSocket | null = null;
     let disposed = false;
 
-    ws = new WebSocket(ptyUrl(props.hostId, Math.max(term.cols, 2), Math.max(term.rows, 2)));
+    try {
+      ws = openTerminalWebSocket(ptyUrl(props.hostId, Math.max(term.cols, 2), Math.max(term.rows, 2)));
+    } catch (error) {
+      term.writeln(`\r\n\x1b[31m[server-deck] ${error instanceof Error ? error.message : String(error)}\x1b[0m`);
+      return () => term.dispose();
+    }
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
       if (!disposed) term.reset();
