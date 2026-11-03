@@ -113,6 +113,19 @@ const APP_CSS = `
 .sd-term-body .xterm,.sd-term-body .xterm .xterm-viewport,
 .sd-term-body .xterm .xterm-screen{background:transparent!important}
 .sd-term-body .xterm{padding:6px 8px;height:100%}
+/* ---- SSH 导入预览 ---- */
+.sd-import{display:flex;flex-direction:column;gap:10px;font-size:12px}
+.sd-import-intro{margin:0;color:var(--dsw-alias-label-secondary,#9aa1ab);line-height:1.6}
+.sd-import-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.sd-import-list{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.22))}
+.sd-import-item{display:flex;align-items:flex-start;gap:8px;padding:10px 0;
+  border-bottom:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.22))}
+.sd-import-item input{margin:3px 0;flex:none;accent-color:#388bfd}
+.sd-import-detail{display:flex;flex-direction:column;gap:4px;min-width:0;
+  color:var(--dsw-alias-label-secondary,#9aa1ab);overflow-wrap:anywhere;line-height:1.5}
+.sd-import-name{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-weight:600;color:var(--dsw-alias-label-primary,#e6edf3)}
+.sd-import-item.invalid .sd-import-detail{color:#ff7b72}
+.sd-import-summary{line-height:1.6}
 .sd-spin{display:inline-block;width:11px;height:11px;border:2px solid rgba(128,128,128,.35);
   border-top-color:#58a6ff;border-radius:50%;animation:sd-rot .8s linear infinite;vertical-align:-2px}
 @keyframes sd-rot{to{transform:rotate(360deg)}}
