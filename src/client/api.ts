@@ -95,11 +95,13 @@ export function importSshConfig(dryRun = false): Promise<{
   return jfetch('/import-ssh-config', { method: 'POST', body: JSON.stringify({ dryRun }) });
 }
 
-/** PTY WebSocket 地址(同源)。 */
+/** PTY WebSocket 地址:优先使用宿主 transport,否则跟随页面基址。 */
 export function ptyUrl(hostId: string, cols: number, rows: number): string {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const q = new URLSearchParams({ host: hostId, cols: String(cols), rows: String(rows) });
-  return `${proto}://${location.host}/server-deck/ws/pty?${q}`;
+  const globals = globalThis as { __DSH_TRANSPORT__?: { streamBaseUrl?: string } };
+  const url = new URL(`server-deck/ws/pty?${q}`, globals.__DSH_TRANSPORT__?.streamBaseUrl ?? document.baseURI);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.href;
 }
 
 export { type HostEntry, type HostInput, type HostStatus };
