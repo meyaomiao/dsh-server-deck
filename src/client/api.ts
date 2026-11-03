@@ -87,12 +87,12 @@ export function patchMetricsSettings(patch: Partial<MetricsSettings>): Promise<{
   return jfetch('/metrics/settings', { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
-export function importSshConfig(dryRun = false): Promise<{
-  found: number;
-  importedCount: number;
-  skipped: number;
-}> {
-  return jfetch('/import-ssh-config', { method: 'POST', body: JSON.stringify({ dryRun }) });
+export function previewSshConfig(): Promise<import('../types.ts').ImportPreview> {
+  return jfetch('/import-ssh-config', { method: 'POST', body: JSON.stringify({ action: 'preview' }) });
+}
+
+export function confirmSshImport(selection: import('../types.ts').ImportConfirmation): Promise<import('../types.ts').ImportResult> {
+  return jfetch('/import-ssh-config', { method: 'POST', body: JSON.stringify({ action: 'confirm', ...selection }) });
 }
 
 /** PTY WebSocket 地址:优先使用宿主 transport,否则跟随页面基址。 */
