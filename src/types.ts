@@ -16,6 +16,8 @@ export interface HostEntry {
   auth: AuthKind;
   /** auth='key' 时的私钥路径(只存路径引用,不存私钥内容)。 */
   keyPath?: string;
+  /** 跳板机:同台账中另一台主机的 id。 */
+  jumpHostId?: string;
   tags?: string[];
   notes?: string;
   createdAt: string;
@@ -29,6 +31,7 @@ export interface HostInput {
   username?: unknown;
   auth?: unknown;
   keyPath?: unknown;
+  jumpHostId?: unknown;
   tags?: unknown;
   notes?: unknown;
   password?: unknown;

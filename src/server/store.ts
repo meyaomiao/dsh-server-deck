@@ -10,8 +10,6 @@ import { join } from 'node:path';
 import type { AuthKind, HostEntry, HostInput } from '../types.ts';
 
 const DSH_DIR = join(homedir(), '.dsh');
-const HOSTS_FILE = join(DSH_DIR, 'server-deck.json');
-const SECRETS_FILE = join(DSH_DIR, 'server-deck.secrets.json');
 
 interface SecretsBlob {
   [hostId: string]: { password?: string; passphrase?: string };
@@ -61,6 +59,11 @@ export function normalizeInput(raw: HostInput): {
     if (typeof raw.keyPath !== 'string') throw new Error('keyPath 无效');
     fields.keyPath = raw.keyPath.trim() || undefined;
   }
+  if (raw.jumpHostId !== undefined) {
+    if (raw.jumpHostId === null) fields.jumpHostId = undefined;
+    else if (typeof raw.jumpHostId !== 'string') throw new Error('jumpHostId 无效');
+    else fields.jumpHostId = raw.jumpHostId.trim() || undefined;
+  }
   if (raw.tags !== undefined) {
     if (!Array.isArray(raw.tags) || !raw.tags.every((t) => typeof t === 'string')) {
       throw new Error('tags 必须是字符串数组');
@@ -77,6 +80,23 @@ export function normalizeInput(raw: HostInput): {
   else if (raw.passphrase === null) secret.passphrase = undefined;
 
   return { fields, secret };
+}
+
+/** 跳板链校验:目标存在、不是自身、无环。 */
+export function assertJumpTarget(id: string, jumpHostId: string | undefined, hosts: readonly HostEntry[]): void {
+  if (jumpHostId === undefined) return;
+  if (jumpHostId === id) throw new Error('跳板机不能是主机自身');
+  const byId = new Map(hosts.map((h) => [h.id, h]));
+  const seen = new Set<string>([id]);
+  let current = byId.get(jumpHostId);
+  if (current === undefined) throw new Error('跳板机不存在');
+  while (current !== undefined) {
+    if (seen.has(current.id)) throw new Error('跳板机存在循环引用');
+    seen.add(current.id);
+    if (current.jumpHostId === undefined) return;
+    current = byId.get(current.jumpHostId);
+  }
+  throw new Error('跳板机链路不完整');
 }
 
 async function atomicWrite(path: string, data: string, mode?: number): Promise<void> {
@@ -98,12 +118,19 @@ async function readJson<T>(path: string, fallback: T): Promise<T> {
 export class HostStore {
   private blob: HostsBlob = { version: 1, hosts: [] };
   private secrets: SecretsBlob = {};
+  private readonly hostsFile: string;
+  private readonly secretsFile: string;
+
+  constructor(private readonly directory = DSH_DIR) {
+    this.hostsFile = join(directory, 'server-deck.json');
+    this.secretsFile = join(directory, 'server-deck.secrets.json');
+  }
 
   async load(): Promise<void> {
-    await mkdir(DSH_DIR, { recursive: true });
-    this.blob = await readJson<HostsBlob>(HOSTS_FILE, { version: 1, hosts: [] });
+    await mkdir(this.directory, { recursive: true });
+    this.blob = await readJson<HostsBlob>(this.hostsFile, { version: 1, hosts: [] });
     if (!Array.isArray(this.blob.hosts)) this.blob.hosts = [];
-    this.secrets = await readJson<SecretsBlob>(SECRETS_FILE, {});
+    this.secrets = await readJson<SecretsBlob>(this.secretsFile, {});
   }
 
   list(): readonly HostEntry[] {
@@ -112,6 +139,18 @@ export class HostStore {
 
   get(id: string): HostEntry | undefined {
     return this.blob.hosts.find((h) => h.id === id);
+  }
+
+  /** 修改/删除前固定失效范围;删除会清除直接引用,之后无法还原旧依赖。 */
+  dependents(id: string): string[] {
+    const affected = new Set([id]);
+    const hosts = this.list();
+    for (const current of affected) {
+      for (const host of hosts) {
+        if (host.jumpHostId === current) affected.add(host.id);
+      }
+    }
+    return [...affected];
   }
 
   getSecret(id: string): { password?: string; passphrase?: string } {
@@ -123,14 +162,17 @@ export class HostStore {
     if (!isStr(fields.host) || !isStr(fields.username) || !fields.auth) {
       throw new Error('host / username / auth 为必填');
     }
+    const id = `srv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    assertJumpTarget(id, fields.jumpHostId, this.blob.hosts);
     const entry: HostEntry = {
-      id: `srv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      id,
       name: fields.name?.trim() || `${fields.username}@${fields.host}`,
       host: fields.host,
       port: fields.port ?? 22,
       username: fields.username,
       auth: fields.auth,
       keyPath: fields.keyPath,
+      jumpHostId: fields.jumpHostId,
       tags: fields.tags,
       notes: fields.notes,
       createdAt: new Date().toISOString(),
@@ -138,9 +180,9 @@ export class HostStore {
     this.blob.hosts.push(entry);
     if (secret.password !== undefined || secret.passphrase !== undefined) {
       this.secrets[entry.id] = secret;
-      await atomicWrite(SECRETS_FILE, JSON.stringify(this.secrets, null, 2), 0o600);
+      await atomicWrite(this.secretsFile, JSON.stringify(this.secrets, null, 2), 0o600);
     }
-    await atomicWrite(HOSTS_FILE, JSON.stringify(this.blob, null, 2));
+    await atomicWrite(this.hostsFile, JSON.stringify(this.blob, null, 2));
     return entry;
   }
 
@@ -150,18 +192,19 @@ export class HostStore {
     const { fields, secret } = normalizeInput(input);
     const next = { ...entry, ...fields } as HostEntry;
     next.name = next.name || `${next.username}@${next.host}`;
+    assertJumpTarget(id, next.jumpHostId, [...this.blob.hosts.filter((h) => h.id !== id), next]);
     const idx = this.blob.hosts.indexOf(entry);
     this.blob.hosts[idx] = next;
-    if (secret.password !== undefined || secret.passphrase !== undefined) {
+    if (secret.password !== undefined || secret.passphrase !== undefined || input.password === null || input.passphrase === null) {
       this.secrets[id] = { ...this.secrets[id], ...secret };
       // 显式清除:password/passphrase 传 null 时 normalize 得到 undefined,这里删除键
       for (const k of ['password', 'passphrase'] as const) {
         if (this.secrets[id][k] === undefined) delete this.secrets[id][k];
       }
       if (Object.keys(this.secrets[id]).length === 0) delete this.secrets[id];
-      await atomicWrite(SECRETS_FILE, JSON.stringify(this.secrets, null, 2), 0o600);
+      await atomicWrite(this.secretsFile, JSON.stringify(this.secrets, null, 2), 0o600);
     }
-    await atomicWrite(HOSTS_FILE, JSON.stringify(this.blob, null, 2));
+    await atomicWrite(this.hostsFile, JSON.stringify(this.blob, null, 2));
     return next;
   }
 
@@ -169,11 +212,14 @@ export class HostStore {
     const before = this.blob.hosts.length;
     this.blob.hosts = this.blob.hosts.filter((h) => h.id !== id);
     if (this.blob.hosts.length === before) return false;
+    for (const h of this.blob.hosts) {
+      if (h.jumpHostId === id) h.jumpHostId = undefined;
+    }
     if (id in this.secrets) {
       delete this.secrets[id];
-      await atomicWrite(SECRETS_FILE, JSON.stringify(this.secrets, null, 2), 0o600);
+      await atomicWrite(this.secretsFile, JSON.stringify(this.secrets, null, 2), 0o600);
     }
-    await atomicWrite(HOSTS_FILE, JSON.stringify(this.blob, null, 2));
+    await atomicWrite(this.hostsFile, JSON.stringify(this.blob, null, 2));
     return true;
   }
 }
