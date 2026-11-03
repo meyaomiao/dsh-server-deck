@@ -91,14 +91,15 @@ xterm.js 全功能终端:5000 行回滚、256 色、窗口尺寸实时同步、�
   <img src="docs/screenshots/add-host.png" width="420" alt="添加服务器表单">
 </p>
 
-## 🔀 双形态挂载
+## 🔀 三种挂载方式
 
 | 环境 | 形态 |
 |---|---|
-| 安装了 [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) | 注册为侧边栏「🖥 服务器」页签(order 45),原生 tab chrome、设置页开关、visible 门控轮询 |
-| 未安装 | 自绘右侧可展开/收起面板:右缘竖条开关 + 拖缘调宽,宽度持久化 |
+| DSH 提供官方原生右侧栏 | 优先注册「服务器」原生页签 |
+| 原生栏不可用且安装 [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) | 注册侧边栏「服务器」页签，按可见状态刷新 |
+| 两种页签均不可用 | 独立右侧面板，支持展开/收起与拖动宽度 |
 
-装载顺序无关:client 入口不声明强制依赖,由内层动态子插件等待服务就绪后注册页签并自动收起独立面板。
+官方侧栏与可选 better-sidebar 通过动态子插件等待；页签就绪时自动收起独立面板，避免双入口。客户端声明 `slots` 和 `connection` 服务。
 
 ## 📦 安装
 

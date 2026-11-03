@@ -27,6 +27,8 @@ before(async () => {
         import { createRoot } from 'react-dom/client';
         import { ServerDeckApp } from './src/client/app.tsx';
         import { ensureStyles } from './src/client/styles.ts';
+        import { installTerminalConnection } from './src/client/terminal-connection.ts';
+        installTerminalConnection({ openWebSocket: (path) => new WebSocket(new URL(path, document.baseURI)) });
         ensureStyles();
         createRoot(document.getElementById('root')).render(createElement(ServerDeckApp, { visible: false }));`,
       resolveDir: root,
