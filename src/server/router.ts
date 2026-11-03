@@ -259,12 +259,20 @@ export function createApiRouter(
         const id = decodeURIComponent(m[1]);
         if (method === 'PATCH') {
           const body = await readJsonBody<HostInput>(req);
+          const before = store.get(id);
+          const affected = store.dependents(id);
           const entry = await store.update(id, body);
+          const connectionChanged = (['host', 'port', 'username', 'auth', 'keyPath', 'jumpHostId'] as const)
+            .some((field) => before?.[field] !== entry[field])
+            || [body.password, body.passphrase].some((value) => value === null || typeof value === 'string' && value.length > 0);
+          if (connectionChanged) for (const hostId of affected) ssh.close(hostId);
           sendJson(res, 200, { ok: true, host: entry });
           return;
         }
         if (method === 'DELETE') {
-          ssh.close(id);
+          // remove 会清除直接 jumpHostId,先捕获整个旧依赖图。
+          const affected = store.dependents(id);
+          for (const hostId of affected) ssh.close(hostId);
           recorder.forget(id);
           const removed = await store.remove(id);
           if (removed) await metrics.removeHost(id);
