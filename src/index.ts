@@ -27,14 +27,12 @@ import { registerExecTools } from './server/exec-tools.ts';
 /** Cordis 插件名,loader 诊断使用。 */
 const name = 'server-deck';
 
-/** webServer 注册路由;connection 复用宿主准入;tools / systemPrompt 注册对话下发。 */
+/** webServer 注册路由;connection 兼容旧宿主鉴权;tools / systemPrompt 注册对话下发。 */
 const inject = ['webServer', 'connection', 'tools', 'systemPrompt'];
 
 /** Cordis 插件体。 */
 export function apply(ctx: Context): void {
-  let connection: RequestConnection | undefined;
-  // Old hosts may lack the service/API; routes still fail closed in that case.
-  try { connection = (ctx as unknown as { connection?: RequestConnection }).connection; } catch { /* unavailable */ }
+  const connection = ctx.get('connection') as RequestConnection | undefined;
   const store = new HostStore();
   const metrics = new MetricStore();
   const pool = new HostPool(
@@ -65,15 +63,15 @@ export function apply(ctx: Context): void {
     pool.closeAll();
   }, 'server-deck: dispose connections');
 
-  ctx.effect(
-    () =>
-      ctx.webServer.register({
-        kind: 'prefix',
-        path: '/server-deck/api',
-        handler: createApiRouter(store, pool, metrics, recorder, backfill, connection),
-      }),
-    'server-deck: rest api',
-  );
+  ctx.effect(() => {
+    const route = {
+      kind: 'prefix' as const,
+      path: '/server-deck/api',
+      auth: 'required' as const,
+      handler: createApiRouter(store, pool, metrics, recorder, backfill, connection),
+    };
+    return ctx.webServer.register(route);
+  }, 'server-deck: rest api');
 
   ctx.effect(() => {
     const route = createPtyRoute(pool, (id) => store.get(id) !== undefined, connection);

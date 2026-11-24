@@ -31,7 +31,7 @@ import type { MetricStore } from './metric-store.ts';
 import type { MetricRecorder } from './recorder.ts';
 import type { SarBackfill } from './backfill.ts';
 import { createSshImporter } from './importer.ts';
-import { requestRejection, type RequestConnection } from './auth.ts';
+import { requestRejection, type RequestConnection, type RequestPeer } from './auth.ts';
 export { isLoopback } from './auth.ts';
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -79,10 +79,10 @@ export function createApiRouter(
   backfill?: SarBackfill,
   connection?: RequestConnection,
   readImportConfig?: () => Promise<string>,
-): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+): (req: IncomingMessage, res: ServerResponse, peer?: RequestPeer) => Promise<void> {
   const importer = createSshImporter(store, readImportConfig, (id) => ssh.close(id));
-  return async (req, res) => {
-    const rejection = requestRejection(req, connection);
+  return async (req, res, peer) => {
+    const rejection = requestRejection(req, connection, peer);
     if (rejection !== undefined) {
       sendJson(res, rejection.status, { error: rejection.error });
       return;

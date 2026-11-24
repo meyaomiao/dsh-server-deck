@@ -10,7 +10,7 @@ import type { MetricStore } from '../src/server/metric-store.ts';
 import type { MetricRecorder } from '../src/server/recorder.ts';
 import { createApiRouter } from '../src/server/router.ts';
 import { createPtyRoute } from '../src/server/pty.ts';
-import { requestRejection, type RequestConnection } from '../src/server/auth.ts';
+import { requestRejection, type RequestConnection, type RequestPeer } from '../src/server/auth.ts';
 
 type TestConnection = RequestConnection;
 
@@ -24,15 +24,7 @@ function verifier(): TestConnection {
   } };
 }
 
-// Simulates host Connection (0.2.3-alpha.1+): admit() returns the Peer or a rejection.
-function admitVerifier(): TestConnection {
-  return { admit(req) {
-    if (!req.headers.host?.startsWith('127.0.0.1:')) return { rejection: 403 as const };
-    if (req.headers['sec-fetch-site'] === 'cross-site') return { rejection: 403 as const };
-    if (req.headers.origin !== undefined && req.headers.origin !== `http://${req.headers.host}`) return { rejection: 403 as const };
-    return req.headers.cookie === 'test-session=valid' ? { peer: {} } : { rejection: 401 as const };
-  } };
-}
+const ownerPeer: RequestPeer = { principal: { kind: 'owner' }, signal: new AbortController().signal };
 
 class TestChannel extends Duplex {
   ended = 0;
@@ -49,7 +41,12 @@ class TestChannel extends Duplex {
   setWindow(rows: number, cols: number): void { this.windows.push([rows, cols]); }
 }
 
-async function fixture(t: TestContext, connection: TestConnection | undefined, shell?: () => Promise<TestChannel>) {
+async function fixture(
+  t: TestContext,
+  connection: TestConnection | undefined,
+  shell?: () => Promise<TestChannel>,
+  admittedPeer?: RequestPeer,
+) {
   let shellCalls = 0;
   let hostReads = 0;
   const channel = new TestChannel();
@@ -60,13 +57,13 @@ async function fixture(t: TestContext, connection: TestConnection | undefined, s
   const store = { list() { hostReads += 1; return []; } } as unknown as HostStore;
   const api = createApiRouter(store, pool, {} as MetricStore, {} as MetricRecorder, undefined, connection);
   const pty = createPtyRoute(pool, (id) => id === 'test-host', connection);
-  const server = createServer((req, res) => { void api(req, res); });
+  const server = createServer((req, res) => { void api(req, res, admittedPeer); });
   const sockets = new Set<Duplex>();
   server.on('connection', (socket) => {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
   });
-  server.on('upgrade', pty.handler);
+  server.on('upgrade', (req, socket, head) => pty.handler(req, socket, head, admittedPeer));
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
@@ -234,68 +231,42 @@ test('PTY disposal closes a shell that is still being created', { timeout: 3000 
   assert.equal(f.channel.closeCalls, 1);
 });
 
-test('admit() admission lists hosts and bridges the terminal on DSH 0.2.3+', { timeout: 3000 }, async (t) => {
-  const f = await fixture(t, admitVerifier());
-  const headers = { cookie: 'test-session=valid', origin: `http://${f.authority}`, 'sec-fetch-site': 'same-origin' };
-  assert.equal(await f.http(headers), 200);
+test('the modern WebServer owner Peer grants REST and PTY without re-authenticating', { timeout: 3000 }, async (t) => {
+  const reauthenticate = t.mock.fn(() => { throw new Error('must not re-authenticate'); });
+  const f = await fixture(t, { requestRejection: reauthenticate, admit: reauthenticate } as TestConnection, undefined, ownerPeer);
+  assert.equal(await f.http(), 200);
   assert.equal(f.hostReads(), 1);
-  const { status, socket } = await f.ws(headers);
+  const { status, socket } = await f.ws();
   assert.equal(status, 101);
   assert.equal(f.shellCalls(), 1);
   const output = once(socket, 'message');
   f.channel.push(Buffer.from('shell-output'));
   assert.equal((await output)[0].toString(), 'shell-output');
+  assert.equal(reauthenticate.mock.callCount(), 0);
   socket.close();
 });
 
-test('admit() rejections map to the same REST and PTY statuses', { timeout: 3000 }, async (t) => {
-  const cases: { name: string; headers: Record<string, string>; status: number }[] = [
-    { name: 'anonymous loopback', headers: {}, status: 401 },
-    { name: 'untrusted Origin', headers: { origin: 'https://untrusted.example' }, status: 403 },
+test('REST and PTY refuse absent, invalid, revoked or non-owner Peers', { timeout: 3000 }, async (t) => {
+  const reauthenticate = t.mock.fn(() => ({ peer: ownerPeer }));
+  const modernConnection = { admit: reauthenticate } as TestConnection;
+  const cases: [name: string, peer: unknown, status: number][] = [
+    ['missing', undefined, 503],
+    ['null', null, 503],
+    ['malformed', {}, 503],
+    ['revoked', { ...ownerPeer, signal: AbortSignal.abort() }, 401],
+    ['non-owner', { ...ownerPeer, principal: { kind: 'guest' } }, 403],
   ];
-  for (const { name, headers, status } of cases) {
-    const f = await fixture(t, admitVerifier());
-    assert.equal(await f.http(headers), status, `${name} REST`);
-    assert.equal((await f.ws(headers)).status, status, `${name} PTY`);
+  for (const [name, peer, status] of cases) {
+    const f = await fixture(t, modernConnection, undefined, peer as RequestPeer | undefined);
+    assert.equal(await f.http(), status, `${name} REST`);
+    assert.equal((await f.ws()).status, status, `${name} PTY`);
     assert.equal(f.hostReads(), 0);
     assert.equal(f.shellCalls(), 0);
   }
+  assert.equal(reauthenticate.mock.callCount(), 0);
 });
 
-test('admit() failures fail closed instead of granting loopback access', { timeout: 3000 }, async (t) => {
-  const broken: TestConnection[] = [
-    { admit() { throw new Error('test admission failure'); } },
-    { admit() { return undefined; } },
-  ];
-  for (const connection of broken) {
-    const f = await fixture(t, connection);
-    assert.equal(await f.http({ cookie: 'test-session=valid' }), 503);
-    assert.equal((await f.ws({ cookie: 'test-session=valid' })).status, 503);
-    assert.equal(f.hostReads(), 0);
-    assert.equal(f.shellCalls(), 0);
-  }
-});
-
-test('legacy requestRejection wins when a host exposes both admission surfaces', () => {
-  let legacy = 0;
-  let modern = 0;
-  const connection: TestConnection = {
-    requestRejection() { legacy += 1; return undefined; },
-    admit() { modern += 1; return { rejection: 401 }; },
-  };
-  const req = { socket: { remoteAddress: '127.0.0.1' } } as IncomingMessage;
-  assert.equal(requestRejection(req, connection), undefined);
-  assert.equal(legacy, 1);
-  assert.equal(modern, 0);
-});
-
-test('non-loopback requests never reach either admission surface', () => {
-  let calls = 0;
-  const connection: TestConnection = {
-    requestRejection() { calls += 1; return undefined; },
-    admit() { calls += 1; return { peer: {} }; },
-  };
+test('non-loopback requests are refused even with an admitted owner Peer', () => {
   const req = { socket: { remoteAddress: '192.0.2.1' } } as IncomingMessage;
-  assert.equal(requestRejection(req, connection)?.status, 403);
-  assert.equal(calls, 0);
+  assert.equal(requestRejection(req, undefined, ownerPeer)?.status, 403);
 });

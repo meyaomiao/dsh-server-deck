@@ -2,7 +2,7 @@
 
 ## 未发布
 
-- 适配 DSH `0.2.3-alpha.2`：宿主在 `0.2.3-alpha.1` 把 Connection 准入从 `requestRejection()` 换成 `admit()`，插件现在两套接口都支持，旧行为不变；旧宿主上 REST/PTY 仍按原来逻辑关闭网络入口。Closes #47。
+- 适配 DSH `0.2.3-alpha.2`：REST 与 PTY 使用 WebServer 已准入的所有者 Peer，不在路由内部二次鉴权。旧宿主保留 `requestRejection()`；两条路由仍仅允许回环访问，缺少有效鉴权时拒绝请求。Closes #47。
 
 ## 0.5.0
 
