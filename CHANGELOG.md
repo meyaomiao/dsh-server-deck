@@ -1,5 +1,9 @@
 # Changelog
 
+## 未发布
+
+- 适配 DSH `0.2.3-alpha.2`：宿主在 `0.2.3-alpha.1` 把 Connection 准入从 `requestRejection()` 换成 `admit()`，插件现在两套接口都支持，旧行为不变；旧宿主上 REST/PTY 仍按原来逻辑关闭网络入口。Closes #47。
+
 ## 0.5.0
 
 升级：先将 DSH 更新到 `0.2.1-rc.5` 或更新的 0.2.1 版本，再更新本插件并重启宿主。新版使用宿主请求鉴权与 WebSocket carrier，旧的未验证授权 API 不再列为兼容版本。
