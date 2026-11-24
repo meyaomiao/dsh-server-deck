@@ -1,5 +1,9 @@
 # Changelog
 
+## 未发布
+
+- 适配 DSH `0.2.3-alpha.2`：REST 与 PTY 使用 WebServer 已准入的所有者 Peer，不在路由内部二次鉴权。旧宿主保留 `requestRejection()`；两条路由仍仅允许回环访问，缺少有效鉴权时拒绝请求。Closes #47。
+
 ## 0.5.0
 
 升级：先将 DSH 更新到 `0.2.1-rc.5` 或更新的 0.2.1 版本，再更新本插件并重启宿主。新版使用宿主请求鉴权与 WebSocket carrier，旧的未验证授权 API 不再列为兼容版本。

@@ -78,10 +78,10 @@
     "playwright": "1.64.1"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-connection": "^0.2.1-rc.5",
-    "@deepseek-ai/dsh-host-webserver": "^0.2.1-rc.5",
-    "@deepseek-ai/dsh-tools": "^0.2.1-rc.5",
-    "@deepseek-ai/dsh-system-prompt": "^0.2.1-rc.5"
+    "@deepseek-ai/dsh-client-connection": "^0.2.1-rc.5 || 0.2.3-alpha.2",
+    "@deepseek-ai/dsh-host-webserver": "^0.2.1-rc.5 || 0.2.3-alpha.2",
+    "@deepseek-ai/dsh-tools": "^0.2.1-rc.5 || 0.2.3-alpha.2",
+    "@deepseek-ai/dsh-system-prompt": "^0.2.1-rc.5 || 0.2.3-alpha.2"
   },
   "engines": {
     "node": ">=20"

@@ -11,11 +11,12 @@ import { STATUS_CODES, type IncomingMessage } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { Duplex } from 'node:stream';
 import type { HostPool } from './pool.ts';
-import { requestRejection, type RequestConnection } from './auth.ts';
+import { requestRejection, type RequestConnection, type RequestPeer } from './auth.ts';
 
 export interface PtyRoute {
   path: string;
-  handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
+  auth: 'required';
+  handler: (req: IncomingMessage, socket: Duplex, head: Buffer, peer?: RequestPeer) => void;
   dispose: () => void;
 }
 
@@ -25,8 +26,9 @@ export function createPtyRoute(pool: HostPool, resolveHostId: (id: string) => bo
 
   return {
     path: '/server-deck/ws/pty',
-    handler(req, socket, head) {
-      const rejection = disposed ? { status: 503 } : requestRejection(req, connection);
+    auth: 'required',
+    handler(req, socket, head, peer) {
+      const rejection = disposed ? { status: 503 } : requestRejection(req, connection, peer);
       if (rejection !== undefined) {
         socket.end(`HTTP/1.1 ${rejection.status} ${STATUS_CODES[rejection.status]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
         return;

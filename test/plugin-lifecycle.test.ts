@@ -23,8 +23,11 @@ function setup(t: TestContext) {
   const close = t.mock.method(HostPool.prototype, 'closeAll', () => {});
   const cleanups: (() => void)[] = [];
   const ctx = {
-    connection: { requestRejection: () => undefined },
-    webServer: { register: () => () => {}, registerUpgrade: () => () => {} },
+    get(key: string) { return key === 'connection' ? { requestRejection: () => undefined } : undefined; },
+    webServer: {
+      register(route: { auth?: string }) { assert.equal(route.auth, 'required'); return () => {}; },
+      registerUpgrade(route: { auth?: string }) { assert.equal(route.auth, 'required'); return () => {}; },
+    },
     tools: { register: () => {} },
     systemPrompt: { section: () => {} },
     effect(install: () => () => void) { cleanups.push(install()); },

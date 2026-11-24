@@ -13,10 +13,12 @@ for (const dependency of [
   '@deepseek-ai/dsh-system-prompt',
   '@deepseek-ai/dsh-client-connection',
 ]) {
-  test(`compatibility: ${dependency} accepts the verified DSH prerelease`, () => {
-    assert.ok(satisfies('0.2.1-rc.5', pkg.peerDependencies[dependency] ?? ''), 'latest prerelease must install without an unmet peer');
-    assert.ok(satisfies(pkg.devDependencies[dependency], pkg.peerDependencies[dependency]), 'typecheck must use a declared compatible Host');
-    assert.equal(satisfies('0.2.0-rc.2', pkg.peerDependencies[dependency]), false, 'older unverified request-admission APIs must not be advertised');
+  test(`compatibility: ${dependency} accepts the verified DSH prereleases`, () => {
+    const range = pkg.peerDependencies[dependency] ?? '';
+    assert.ok(satisfies('0.2.1-rc.5', range), '0.2.1-rc.5 implements requestRejection() and must install without an unmet peer');
+    assert.ok(satisfies('0.2.3-alpha.2', range), '0.2.3-alpha.1 replaced it with admit() and must install without an unmet peer');
+    assert.ok(satisfies(pkg.devDependencies[dependency], range), 'typecheck must use a declared compatible Host');
+    assert.equal(satisfies('0.2.0-rc.2', range), false, 'older unverified request-admission APIs must not be advertised');
   });
 }
 
